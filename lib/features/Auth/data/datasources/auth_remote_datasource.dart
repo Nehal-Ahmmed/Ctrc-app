@@ -32,7 +32,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   AuthRemoteDataSourceImpl({
     Dio? dio,
     String baseUrl =
-        'http://192.168.3.105:8089', // Match server.port 8089 in backend application.properties
+        'http://127.0.0.1:8089', // Use localhost with adb reverse for physical device
   }) : dio =
            dio ??
            Dio(
@@ -60,8 +60,8 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.statusCode == 200) {
         final data = response.data;
-        // Backend returns AuthResponse: {token: ..., user: {...}}
-        return UserModel.fromJson(data['user'] as Map<String, dynamic>);
+        // Backend returns ApiResponse<AuthResponse>: { success, data: {token: ..., user: {...}}, message }
+        return UserModel.fromJson(data['data']['user'] as Map<String, dynamic>);
       } else {
         throw Exception(
           _extractErrorMessage(response.data) ?? 'Failed to sign in',
@@ -97,7 +97,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.statusCode == 201) {
         final data = response.data;
-        return UserModel.fromJson(data['user'] as Map<String, dynamic>);
+        return UserModel.fromJson(data['data']['user'] as Map<String, dynamic>);
       } else {
         throw Exception(
           _extractErrorMessage(response.data) ?? 'Failed to sign up',
