@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/models/user_model.dart';
 
 /// Abstract class for remote authentication data source
@@ -60,6 +61,10 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.statusCode == 200) {
         final data = response.data;
+        // Save token to preferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('auth_token', data['data']['token'] as String);
+        
         // Backend returns ApiResponse<AuthResponse>: { success, data: {token: ..., user: {...}}, message }
         return UserModel.fromJson(data['data']['user'] as Map<String, dynamic>);
       } else {
@@ -97,6 +102,10 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.statusCode == 201) {
         final data = response.data;
+        // Save token to preferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('auth_token', data['data']['token'] as String);
+        
         return UserModel.fromJson(data['data']['user'] as Map<String, dynamic>);
       } else {
         throw Exception(
@@ -111,16 +120,28 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   @override
   Future<UserModel> getCurrentUser() async {
-    // In a full implementation, session/token management would fetch the current user details.
-    throw UnimplementedError(
-      'getCurrentUser session management not implemented',
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    
+    if (token == null) {
+      throw Exception('No token found');
+    }
+    
+    // In a real app, hit GET /api/users/me here.
+    // Since backend isn't ready, if token exists, we return a mock user 
+    // to maintain the logged-in state across app restarts.
+    return UserModel(
+      user_id: '0', 
+      email: token.replaceAll('dummy-token-for-', ''), 
+      name: 'User', 
+      password: ''
     );
   }
 
   @override
   Future<void> signOut() async {
-    // Local session clearing simulation
-    await Future.delayed(const Duration(milliseconds: 100));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('auth_token');
   }
 
   @override
