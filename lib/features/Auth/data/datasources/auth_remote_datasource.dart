@@ -127,15 +127,25 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
       throw Exception('No token found');
     }
     
-    // In a real app, hit GET /api/users/me here.
-    // Since backend isn't ready, if token exists, we return a mock user 
-    // to maintain the logged-in state across app restarts.
-    return UserModel(
-      user_id: '0', 
-      email: token.replaceAll('dummy-token-for-', ''), 
-      name: 'User', 
-      password: ''
-    );
+    try {
+      final response = await dio.get(
+        '/api/users/me',
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        return UserModel.fromJson(data['data'] as Map<String, dynamic>);
+      } else {
+        throw Exception('Failed to get current user');
+      }
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401 || e.response?.statusCode == 400) {
+        await prefs.remove('auth_token');
+      }
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Session expired');
+    }
   }
 
   @override
@@ -156,10 +166,34 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     String? address,
     String? image_url,
   }) async {
-    // Profile update endpoint is not yet configured on the backend
-    throw UnimplementedError(
-      'updateProfile is not yet implemented on the backend endpoints',
-    );
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    
+    if (token == null) {
+      throw Exception('No token found');
+    }
+    
+    try {
+      final response = await dio.put(
+        '/api/users/me',
+        data: {
+          'name': name,
+          'address': address,
+          'imageUrl': image_url,
+        },
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        return UserModel.fromJson(data['data'] as Map<String, dynamic>);
+      } else {
+        throw Exception('Failed to update profile');
+      }
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Profile update error');
+    }
   }
 
   String? _extractErrorMessage(dynamic responseData) {
