@@ -15,6 +15,7 @@ ReportModel _$ReportModelFromJson(Map<String, dynamic> json) => ReportModel(
   category: json['category'] as String,
   upvoteCount: (json['upvoteCount'] as num?)?.toInt() ?? 0,
   downvoteCount: (json['downvoteCount'] as num?)?.toInt() ?? 0,
+  commentCount: (json['commentCount'] as num?)?.toInt() ?? 0,
   expiresAt: json['expiresAt'] as String?,
   createdAt: json['createdAt'] as String?,
   location: json['location'] == null
@@ -32,6 +33,7 @@ Map<String, dynamic> _$ReportModelToJson(ReportModel instance) =>
       'category': instance.category,
       'upvoteCount': instance.upvoteCount,
       'downvoteCount': instance.downvoteCount,
+      'commentCount': instance.commentCount,
       'expiresAt': instance.expiresAt,
       'createdAt': instance.createdAt,
       'location': instance.location?.toJson(),

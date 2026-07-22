@@ -12,6 +12,7 @@ class ReportModel {
   final String category;
   final int upvoteCount;
   final int downvoteCount;
+  final int commentCount;
   final String? expiresAt;
   final String? createdAt;
   final LocationModel? location;
@@ -25,6 +26,7 @@ class ReportModel {
     required this.category,
     this.upvoteCount = 0,
     this.downvoteCount = 0,
+    this.commentCount = 0,
     this.expiresAt,
     this.createdAt,
     this.location,
