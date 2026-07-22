@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 
+import '../../../Auth/presentation/providers/auth_provider.dart';
+
 class SplashPage extends ConsumerStatefulWidget {
   const SplashPage({super.key});
 
@@ -18,8 +20,19 @@ class _SplashPageState extends ConsumerState<SplashPage> {
   }
 
   Future<void> _navigateToHome() async {
-    // Wait for 2 seconds to show splash
-    await Future.delayed(const Duration(seconds: 2));
+    // Ping backend to wake it up (Render sleep workaround)
+    final dataSource = ref.read(authRemoteDataSourceProvider);
+    final isHealthy = await dataSource.checkHealth();
+    
+    if (mounted && isHealthy) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Backend Connected! 🚀'), 
+          duration: Duration(milliseconds: 1500),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
     
     // We don't check auth state to block routing here because 
     // both guests and users can access /home.

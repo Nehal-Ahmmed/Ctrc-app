@@ -4,6 +4,8 @@ import '../../domain/models/user_model.dart';
 
 /// Abstract class for remote authentication data source
 abstract class AuthRemoteDataSource {
+  Future<bool> checkHealth();
+
   Future<UserModel> signIn({required String email, required String password});
 
   Future<UserModel> signUp({
@@ -33,20 +35,30 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   AuthRemoteDataSourceImpl({
     Dio? dio,
     String baseUrl =
-        'http://127.0.0.1:8089', // Use localhost with adb reverse for physical device
+        'https://ctrc-backend.onrender.com', // Use deployed Render backend
   }) : dio =
            dio ??
            Dio(
              BaseOptions(
                baseUrl: baseUrl,
-               connectTimeout: const Duration(seconds: 10),
-               receiveTimeout: const Duration(seconds: 10),
+               connectTimeout: const Duration(seconds: 60),
+               receiveTimeout: const Duration(seconds: 60),
                headers: {
                  'Content-Type': 'application/json',
                  'Accept': 'application/json',
                },
              ),
            );
+
+  @override
+  Future<bool> checkHealth() async {
+    try {
+      final response = await dio.get('/api/health');
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
 
   @override
   Future<UserModel> signIn({
