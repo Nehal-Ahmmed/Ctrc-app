@@ -32,6 +32,36 @@ class ReportModel {
     this.location,
   });
 
+  ReportModel copyWith({
+    int? reportId,
+    int? userId,
+    int? locationId,
+    String? title,
+    String? description,
+    String? category,
+    int? upvoteCount,
+    int? downvoteCount,
+    int? commentCount,
+    String? expiresAt,
+    String? createdAt,
+    LocationModel? location,
+  }) {
+    return ReportModel(
+      reportId: reportId ?? this.reportId,
+      userId: userId ?? this.userId,
+      locationId: locationId ?? this.locationId,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      category: category ?? this.category,
+      upvoteCount: upvoteCount ?? this.upvoteCount,
+      downvoteCount: downvoteCount ?? this.downvoteCount,
+      commentCount: commentCount ?? this.commentCount,
+      expiresAt: expiresAt ?? this.expiresAt,
+      createdAt: createdAt ?? this.createdAt,
+      location: location ?? this.location,
+    );
+  }
+
   factory ReportModel.fromJson(Map<String, dynamic> json) => _$ReportModelFromJson(json);
   Map<String, dynamic> toJson() => _$ReportModelToJson(this);
 }

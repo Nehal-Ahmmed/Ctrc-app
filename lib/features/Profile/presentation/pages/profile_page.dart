@@ -15,6 +15,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _addressController;
+  late TextEditingController _imageUrlController;
 
   @override
   void initState() {
@@ -22,12 +23,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     final user = ref.read(authProvider).user;
     _nameController = TextEditingController(text: user?.name ?? '');
     _addressController = TextEditingController(text: user?.address ?? '');
+    _imageUrlController = TextEditingController(text: user?.image_url ?? '');
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _addressController.dispose();
+    _imageUrlController.dispose();
     super.dispose();
   }
 
@@ -37,6 +40,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     final error = await ref.read(authProvider.notifier).updateProfile(
       name: _nameController.text.trim(),
       address: _addressController.text.trim(),
+      imageUrl: _imageUrlController.text.trim(),
     );
     
     if (error == null) {
@@ -92,9 +96,14 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             const SizedBox(height: 20),
-            const CircleAvatar(
+            CircleAvatar(
               radius: 50,
-              child: Icon(Icons.person, size: 50),
+              backgroundImage: (user.image_url != null && user.image_url!.isNotEmpty)
+                  ? NetworkImage(user.image_url!)
+                  : null,
+              child: (user.image_url == null || user.image_url!.isEmpty)
+                  ? const Icon(Icons.person, size: 50)
+                  : null,
             ),
             const SizedBox(height: 20),
             if (!_isEditing) ...[
@@ -118,6 +127,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                   setState(() {
                     _nameController.text = user.name;
                     _addressController.text = user.address ?? '';
+                    _imageUrlController.text = user.image_url ?? '';
                     _isEditing = true;
                   });
                 },
@@ -149,6 +159,15 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                 decoration: const InputDecoration(
                   labelText: 'Address',
                   border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _imageUrlController,
+                decoration: const InputDecoration(
+                  labelText: 'Profile Image URL',
+                  border: OutlineInputBorder(),
+                  hintText: 'https://example.com/image.jpg',
                 ),
               ),
               const SizedBox(height: 24),

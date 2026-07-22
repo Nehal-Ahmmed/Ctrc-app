@@ -6,19 +6,34 @@ import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.d
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
 import 'package:ctrc/features/Report/presentation/widgets/create_report_bottom_sheet.dart';
 
-class HomePage extends StatefulWidget {
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
+
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends ConsumerState<HomePage> {
   LatLng? _currentLocation;
   List<ReportModel> _feedReports = [];
   bool _isLoading = false;
+  String _selectedCategory = 'All';
   final ReportRemoteDataSource _remoteDataSource = ReportRemoteDataSourceImpl();
   StreamSubscription<Position>? _positionStreamSub;
+  
+  final List<String> _categories = [
+    'All',
+    'Road block',
+    'Robbery',
+    'Accident',
+    'Fire',
+    'Traffic jam',
+    'Riot',
+    'Other'
+  ];
 
   @override
   void initState() {
@@ -79,6 +94,7 @@ class _HomePageState extends State<HomePage> {
         lat: _currentLocation!.latitude,
         lng: _currentLocation!.longitude,
         radius: 5.0, // 5km
+        category: _selectedCategory,
       );
       
       if (mounted) {
@@ -130,6 +146,136 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _handleVote(ReportModel report, String type, int index) async {
+    final user = ref.read(authProvider).user;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to vote')),
+      );
+      return;
+    }
+    
+    // Optimistic update
+    setState(() {
+       if (type == 'up') {
+          _feedReports[index] = report.copyWith(upvoteCount: report.upvoteCount + 1);
+       } else {
+          _feedReports[index] = report.copyWith(downvoteCount: report.downvoteCount + 1);
+       }
+    });
+
+    try {
+      await _remoteDataSource.voteReport(
+        reportId: report.reportId,
+        userId: int.parse(user.user_id),
+        type: type,
+      );
+    } catch (e) {
+      // Revert optimistic update on error
+      if (mounted) {
+        setState(() {
+           _feedReports[index] = report;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to vote: $e')),
+        );
+      }
+    }
+  }
+
+  void _openCommentDialog(ReportModel report, int index) {
+      final user = ref.read(authProvider).user;
+      if (user == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please log in to comment')),
+        );
+        return;
+      }
+      
+      final TextEditingController commentController = TextEditingController();
+      bool isSubmitting = false;
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) {
+          return StatefulBuilder(
+            builder: (context, setModalState) {
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Add Comment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: commentController,
+                      decoration: const InputDecoration(
+                        hintText: 'Write a comment...',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: isSubmitting ? null : () async {
+                          if (commentController.text.trim().isEmpty) return;
+                          
+                          setModalState(() {
+                            isSubmitting = true;
+                          });
+
+                          try {
+                            await _remoteDataSource.addComment(
+                              reportId: report.reportId,
+                              userId: int.parse(user.user_id),
+                              content: commentController.text.trim(),
+                            );
+                            
+                            if (mounted) {
+                              setState(() {
+                                _feedReports[index] = report.copyWith(
+                                  commentCount: report.commentCount + 1,
+                                );
+                              });
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Comment added')),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              setModalState(() {
+                                isSubmitting = false;
+                              });
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to comment: $e')),
+                              );
+                            }
+                          }
+                        },
+                        child: isSubmitting 
+                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
+                            : const Text('Post Comment'),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -145,6 +291,9 @@ class _HomePageState extends State<HomePage> {
             SliverToBoxAdapter(
               child: _buildCreatePostHeader(),
             ),
+            SliverToBoxAdapter(
+              child: _buildCategoryFilter(),
+            ),
             if (_isLoading && _feedReports.isEmpty)
               const SliverFillRemaining(
                 child: Center(child: CircularProgressIndicator()),
@@ -158,7 +307,7 @@ class _HomePageState extends State<HomePage> {
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final report = _feedReports[index];
-                    return _buildReportCard(report);
+                    return _buildReportCard(report, index);
                   },
                   childCount: _feedReports.length,
                 ),
@@ -169,7 +318,48 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildCategoryFilter() {
+    return Container(
+      height: 50,
+      margin: const EdgeInsets.only(bottom: 8.0),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        itemCount: _categories.length,
+        itemBuilder: (context, index) {
+          final category = _categories[index];
+          final isSelected = category == _selectedCategory;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: FilterChip(
+              label: Text(category),
+              selected: isSelected,
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() {
+                    _selectedCategory = category;
+                  });
+                  _fetchFeedData();
+                }
+              },
+              backgroundColor: Colors.white,
+              selectedColor: Colors.blue[100],
+              checkmarkColor: Colors.blue,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+                side: BorderSide(
+                  color: isSelected ? Colors.blue : Colors.grey[300]!,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildCreatePostHeader() {
+    final user = ref.watch(authProvider).user;
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -178,7 +368,12 @@ class _HomePageState extends State<HomePage> {
         children: [
           CircleAvatar(
             backgroundColor: Colors.blue[100],
-            child: const Icon(Icons.person, color: Colors.blue),
+            backgroundImage: (user?.image_url != null && user!.image_url!.isNotEmpty)
+                ? NetworkImage(user.image_url!)
+                : null,
+            child: (user?.image_url == null || user!.image_url!.isEmpty)
+                ? const Icon(Icons.person, color: Colors.blue)
+                : null,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -203,7 +398,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildReportCard(ReportModel report) {
+  Widget _buildReportCard(ReportModel report, int index) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
       elevation: 0,
@@ -263,14 +458,14 @@ class _HomePageState extends State<HomePage> {
                   children: [
                     IconButton(
                       icon: const Icon(Icons.arrow_upward, size: 20),
-                      onPressed: () {},
+                      onPressed: () => _handleVote(report, 'up', index),
                       color: Colors.grey[600],
                     ),
                     Text('${report.upvoteCount}'),
                     const SizedBox(width: 8),
                     IconButton(
                       icon: const Icon(Icons.arrow_downward, size: 20),
-                      onPressed: () {},
+                      onPressed: () => _handleVote(report, 'down', index),
                       color: Colors.grey[600],
                     ),
                     Text('${report.downvoteCount}'),
@@ -280,7 +475,7 @@ class _HomePageState extends State<HomePage> {
                   children: [
                     IconButton(
                       icon: const Icon(Icons.comment_outlined, size: 20),
-                      onPressed: () {},
+                      onPressed: () => _openCommentDialog(report, index),
                       color: Colors.grey[600],
                     ),
                     Text('${report.commentCount}'),

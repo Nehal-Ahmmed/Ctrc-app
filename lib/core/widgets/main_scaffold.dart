@@ -49,11 +49,21 @@ class MainScaffold extends ConsumerWidget {
               icon: const Icon(Icons.notifications),
               onPressed: () {},
             ),
-          if (isAuth)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0),
-              child: CircleAvatar(
-                child: Icon(Icons.person),
+          if (isAuth && authState.user != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: GestureDetector(
+                onTap: () {
+                  _onTap(2); // Index 2 is Profile in BottomNavigationBar
+                },
+                child: CircleAvatar(
+                  backgroundImage: (authState.user!.image_url != null && authState.user!.image_url!.isNotEmpty)
+                      ? NetworkImage(authState.user!.image_url!)
+                      : null,
+                  child: (authState.user!.image_url == null || authState.user!.image_url!.isEmpty)
+                      ? const Icon(Icons.person)
+                      : null,
+                ),
               ),
             ),
         ],
@@ -73,6 +83,33 @@ class MainScaffold extends ConsumerWidget {
                       'Menu',
                       style: TextStyle(color: Colors.white, fontSize: 24),
                     ),
+                  ),
+                  if (isAuth) ...[
+                    ListTile(
+                      leading: const Icon(Icons.list_alt),
+                      title: const Text('My Reports'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('My Reports coming soon')));
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.bookmark_border),
+                      title: const Text('Saved Posts'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved Posts coming soon')));
+                      },
+                    ),
+                  ],
+                  ListTile(
+                    leading: const Icon(Icons.directions),
+                    title: const Text('Map Route'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _onTap(1); // Go to Map
+                      // Additional logic to trigger routing mode can be handled via state
+                    },
                   ),
                   ListTile(
                     leading: const Icon(Icons.settings),
