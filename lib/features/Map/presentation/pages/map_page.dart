@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
+import 'package:ctrc/features/Report/presentation/widgets/create_report_bottom_sheet.dart';
 
 class MapPage extends StatefulWidget {
   const MapPage({super.key});
@@ -164,6 +165,104 @@ class _MapPageState extends State<MapPage> {
           )
         ],
       ),
+      floatingActionButton: _selectedLocation != null
+          ? FloatingActionButton.extended(
+              onPressed: _onFabPressed,
+              icon: const Icon(Icons.add_alert),
+              label: const Text('Create Report Here'),
+            )
+          : null,
     );
+  }
+
+  void _onFabPressed() {
+    if (_nearbyReports.isNotEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Incidents Nearby'),
+          content: const Text(
+              'There are already incidents reported nearby. Would you like to link your report to an existing incident or create a completely new one?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _showParentSelectionDialog();
+              },
+              child: const Text('Link to Existing'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _openCreateReportSheet(parentReportId: null);
+              },
+              child: const Text('Create New'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      _openCreateReportSheet(parentReportId: null);
+    }
+  }
+
+  void _showParentSelectionDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Select Incident to Link'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: _nearbyReports.length,
+              itemBuilder: (context, index) {
+                final report = _nearbyReports[index];
+                return ListTile(
+                  title: Text(report.title),
+                  subtitle: Text(report.category),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _openCreateReportSheet(parentReportId: report.reportId);
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _openCreateReportSheet({int? parentReportId}) async {
+    if (_selectedLocation == null) return;
+    
+    // Import needed dynamically or put at top. I will add the import at the top of the file.
+    final result = await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => CreateReportBottomSheet(
+        latitude: _selectedLocation!.latitude,
+        longitude: _selectedLocation!.longitude,
+        parentReportId: parentReportId,
+      ),
+    );
+
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report submitted successfully!')),
+      );
+      _fetchNearbyReports(_selectedLocation!);
+    }
   }
 }

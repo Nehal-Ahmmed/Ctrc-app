@@ -8,6 +8,15 @@ abstract class ReportRemoteDataSource {
     required double lng,
     double radius = 5.0,
   });
+  Future<void> createReport({
+    required int userId,
+    required double latitude,
+    required double longitude,
+    required String title,
+    required String description,
+    required String category,
+    int? parentReportId,
+  });
 }
 
 class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
@@ -28,6 +37,47 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
                 },
               ),
             );
+
+  @override
+  Future<void> createReport({
+    required int userId,
+    required double latitude,
+    required double longitude,
+    required String title,
+    required String description,
+    required String category,
+    int? parentReportId,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      
+      final options = token != null 
+          ? Options(headers: {'Authorization': 'Bearer $token'})
+          : Options();
+
+      final response = await dio.post(
+        '/api/reports',
+        data: {
+          'userId': userId,
+          'latitude': latitude,
+          'longitude': longitude,
+          'title': title,
+          'description': description,
+          'category': category,
+          if (parentReportId != null) 'parentReportId': parentReportId,
+        },
+        options: options,
+      );
+
+      if (response.statusCode != 201 && response.statusCode != 200) {
+        throw Exception('Failed to create report');
+      }
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Failed to create report');
+    }
+  }
 
   @override
   Future<List<ReportModel>> getNearbyReports({
