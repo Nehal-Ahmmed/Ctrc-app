@@ -90,7 +90,7 @@ class MainScaffold extends ConsumerWidget {
                       title: const Text('My Reports'),
                       onTap: () {
                         Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('My Reports coming soon')));
+                        context.push('/my-reports');
                       },
                     ),
                     ListTile(
@@ -98,7 +98,7 @@ class MainScaffold extends ConsumerWidget {
                       title: const Text('Saved Posts'),
                       onTap: () {
                         Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved Posts coming soon')));
+                        context.push('/saved-posts');
                       },
                     ),
                   ],

@@ -6,6 +6,8 @@ import '../../features/Home/presentation/pages/home_page.dart';
 import '../../features/Map/presentation/pages/map_page.dart';
 import '../../features/Profile/presentation/pages/profile_page.dart';
 import '../../features/Profile/presentation/pages/settings_page.dart';
+import '../../features/Report/presentation/pages/my_reports_page.dart';
+import '../../features/Report/presentation/pages/saved_posts_page.dart';
 import '../../features/Splash/presentation/pages/splash_page.dart';
 import '../widgets/main_scaffold.dart';
 
@@ -67,6 +69,16 @@ class AppRouter {
         path: '/settings',
         parentNavigatorKey: _rootNavigatorKey, // Covers bottom nav
         builder: (context, state) => const SettingsPage(),
+      ),
+      GoRoute(
+        path: '/my-reports',
+        parentNavigatorKey: _rootNavigatorKey, 
+        builder: (context, state) => const MyReportsPage(),
+      ),
+      GoRoute(
+        path: '/saved-posts',
+        parentNavigatorKey: _rootNavigatorKey, 
+        builder: (context, state) => const SavedPostsPage(),
       ),
     ],
   );

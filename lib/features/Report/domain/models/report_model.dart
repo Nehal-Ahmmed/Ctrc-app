@@ -15,6 +15,7 @@ class ReportModel {
   final int commentCount;
   final String? expiresAt;
   final String? createdAt;
+  final bool isSaved;
   final LocationModel? location;
 
   ReportModel({
@@ -29,6 +30,7 @@ class ReportModel {
     this.commentCount = 0,
     this.expiresAt,
     this.createdAt,
+    this.isSaved = false,
     this.location,
   });
 
@@ -44,6 +46,7 @@ class ReportModel {
     int? commentCount,
     String? expiresAt,
     String? createdAt,
+    bool? isSaved,
     LocationModel? location,
   }) {
     return ReportModel(
@@ -58,6 +61,7 @@ class ReportModel {
       commentCount: commentCount ?? this.commentCount,
       expiresAt: expiresAt ?? this.expiresAt,
       createdAt: createdAt ?? this.createdAt,
+      isSaved: isSaved ?? this.isSaved,
       location: location ?? this.location,
     );
   }

@@ -28,6 +28,10 @@ abstract class ReportRemoteDataSource {
         required int userId,
         required String content,
     });
+    Future<List<ReportModel>> getMyReports(int userId);
+    Future<List<ReportModel>> getSavedReports(int userId);
+    Future<void> saveReport(int reportId, int userId);
+    Future<void> unsaveReport(int reportId, int userId);
 }
 
 class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
@@ -166,6 +170,81 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     } on DioException catch (e) {
       final message = _extractErrorMessage(e.response?.data);
       throw Exception(message ?? e.message ?? 'Failed to vote');
+    }
+  }
+
+  @override
+  Future<List<ReportModel>> getMyReports(int userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final options = token != null 
+          ? Options(headers: {'Authorization': 'Bearer $token', 'X-User-Id': userId.toString()})
+          : Options(headers: {'X-User-Id': userId.toString()});
+
+      final response = await dio.get('/api/reports/my-reports', options: options);
+      if (response.statusCode == 200) {
+        final List data = response.data['data'];
+        return data.map((json) => ReportModel.fromJson(json as Map<String, dynamic>)).toList();
+      }
+      throw Exception('Failed to load my reports');
+    } catch (e) {
+      throw Exception('Failed to load my reports: $e');
+    }
+  }
+
+  @override
+  Future<List<ReportModel>> getSavedReports(int userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final options = token != null 
+          ? Options(headers: {'Authorization': 'Bearer $token', 'X-User-Id': userId.toString()})
+          : Options(headers: {'X-User-Id': userId.toString()});
+
+      final response = await dio.get('/api/reports/saved', options: options);
+      if (response.statusCode == 200) {
+        final List data = response.data['data'];
+        return data.map((json) {
+          final report = ReportModel.fromJson(json as Map<String, dynamic>);
+          return report.copyWith(isSaved: true);
+        }).toList();
+      }
+      throw Exception('Failed to load saved reports');
+    } catch (e) {
+      throw Exception('Failed to load saved reports: $e');
+    }
+  }
+
+  @override
+  Future<void> saveReport(int reportId, int userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final options = token != null 
+          ? Options(headers: {'Authorization': 'Bearer $token', 'X-User-Id': userId.toString()})
+          : Options(headers: {'X-User-Id': userId.toString()});
+
+      final response = await dio.post('/api/reports/$reportId/save', options: options);
+      if (response.statusCode != 200) throw Exception('Failed to save report');
+    } catch (e) {
+      throw Exception('Failed to save report: $e');
+    }
+  }
+
+  @override
+  Future<void> unsaveReport(int reportId, int userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final options = token != null 
+          ? Options(headers: {'Authorization': 'Bearer $token', 'X-User-Id': userId.toString()})
+          : Options(headers: {'X-User-Id': userId.toString()});
+
+      final response = await dio.delete('/api/reports/$reportId/save', options: options);
+      if (response.statusCode != 200) throw Exception('Failed to unsave report');
+    } catch (e) {
+      throw Exception('Failed to unsave report: $e');
     }
   }
 

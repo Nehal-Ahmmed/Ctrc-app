@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
 import 'package:ctrc/features/Report/presentation/widgets/create_report_bottom_sheet.dart';
+import 'package:ctrc/features/Report/presentation/widgets/report_card_widget.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
@@ -398,109 +399,50 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  Future<void> _handleSave(ReportModel report, int index) async {
+    final user = ref.read(authProvider).user;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to save posts')),
+      );
+      return;
+    }
+
+    final isCurrentlySaved = report.isSaved;
+    
+    // Optimistic update
+    setState(() {
+      _feedReports[index] = report.copyWith(isSaved: !isCurrentlySaved);
+    });
+
+    try {
+      if (isCurrentlySaved) {
+        await _remoteDataSource.unsaveReport(report.reportId, int.parse(user.user_id));
+      } else {
+        await _remoteDataSource.saveReport(report.reportId, int.parse(user.user_id));
+      }
+    } catch (e) {
+      // Revert optimistic update on error
+      if (mounted) {
+        setState(() {
+          _feedReports[index] = report;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update save status: $e')),
+        );
+      }
+    }
+  }
+
   Widget _buildReportCard(ReportModel report, int index) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
-      elevation: 0,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: Colors.red[100],
-                  child: const Icon(Icons.warning, color: Colors.red),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        report.title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      Text(
-                        'Category: ${report.category}',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  _formatDistance(report),
-                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                ),
-              ],
-            ),
-            if (report.description != null && report.description!.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                report.description!,
-                style: const TextStyle(fontSize: 15),
-              ),
-            ],
-            const SizedBox(height: 16),
-            const Divider(height: 1),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_upward, size: 20),
-                      onPressed: () => _handleVote(report, 'up', index),
-                      color: Colors.grey[600],
-                    ),
-                    Text('${report.upvoteCount}'),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.arrow_downward, size: 20),
-                      onPressed: () => _handleVote(report, 'down', index),
-                      color: Colors.grey[600],
-                    ),
-                    Text('${report.downvoteCount}'),
-                  ],
-                ),
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.comment_outlined, size: 20),
-                      onPressed: () => _openCommentDialog(report, index),
-                      color: Colors.grey[600],
-                    ),
-                    Text('${report.commentCount}'),
-                    const SizedBox(width: 8),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return ReportCardWidget(
+      report: report,
+      currentLocation: _currentLocation,
+      onUpvote: () => _handleVote(report, 'up', index),
+      onDownvote: () => _handleVote(report, 'down', index),
+      onComment: () => _openCommentDialog(report, index),
+      onSave: () => _handleSave(report, index),
     );
   }
 
-  String _formatDistance(ReportModel report) {
-    if (_currentLocation == null || report.location == null) return '';
-    final distance = const Distance().as(
-      LengthUnit.Meter,
-      _currentLocation!,
-      LatLng(report.location!.latitude, report.location!.longitude),
-    );
-    if (distance < 1000) {
-      return '${distance.toInt()}m away';
-    } else {
-      return '${(distance / 1000).toStringAsFixed(1)}km away';
-    }
-  }
 }
