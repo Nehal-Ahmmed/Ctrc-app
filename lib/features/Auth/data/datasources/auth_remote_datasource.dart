@@ -1,8 +1,11 @@
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/models/user_model.dart';
 
 /// Abstract class for remote authentication data source
 abstract class AuthRemoteDataSource {
+  Future<bool> checkHealth();
+
   Future<UserModel> signIn({required String email, required String password});
 
   Future<UserModel> signUp({
@@ -32,20 +35,30 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   AuthRemoteDataSourceImpl({
     Dio? dio,
     String baseUrl =
-        'http://192.168.3.105:8089', // Match server.port 8089 in backend application.properties
+        'https://ctrc-backend.onrender.com', // Use deployed Render backend
   }) : dio =
            dio ??
            Dio(
              BaseOptions(
                baseUrl: baseUrl,
-               connectTimeout: const Duration(seconds: 10),
-               receiveTimeout: const Duration(seconds: 10),
+               connectTimeout: const Duration(seconds: 60),
+               receiveTimeout: const Duration(seconds: 60),
                headers: {
                  'Content-Type': 'application/json',
                  'Accept': 'application/json',
                },
              ),
            );
+
+  @override
+  Future<bool> checkHealth() async {
+    try {
+      final response = await dio.get('/api/health');
+      return response.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
 
   @override
   Future<UserModel> signIn({
@@ -60,8 +73,12 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.statusCode == 200) {
         final data = response.data;
-        // Backend returns AuthResponse: {token: ..., user: {...}}
-        return UserModel.fromJson(data['user'] as Map<String, dynamic>);
+        // Save token to preferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('auth_token', data['data']['token'] as String);
+        
+        // Backend returns ApiResponse<AuthResponse>: { success, data: {token: ..., user: {...}}, message }
+        return UserModel.fromJson(data['data']['user'] as Map<String, dynamic>);
       } else {
         throw Exception(
           _extractErrorMessage(response.data) ?? 'Failed to sign in',
@@ -97,7 +114,11 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.statusCode == 201) {
         final data = response.data;
-        return UserModel.fromJson(data['user'] as Map<String, dynamic>);
+        // Save token to preferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('auth_token', data['data']['token'] as String);
+        
+        return UserModel.fromJson(data['data']['user'] as Map<String, dynamic>);
       } else {
         throw Exception(
           _extractErrorMessage(response.data) ?? 'Failed to sign up',
@@ -111,16 +132,38 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   @override
   Future<UserModel> getCurrentUser() async {
-    // In a full implementation, session/token management would fetch the current user details.
-    throw UnimplementedError(
-      'getCurrentUser session management not implemented',
-    );
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    
+    if (token == null) {
+      throw Exception('No token found');
+    }
+    
+    try {
+      final response = await dio.get(
+        '/api/users/me',
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        return UserModel.fromJson(data['data'] as Map<String, dynamic>);
+      } else {
+        throw Exception('Failed to get current user');
+      }
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401 || e.response?.statusCode == 400) {
+        await prefs.remove('auth_token');
+      }
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Session expired');
+    }
   }
 
   @override
   Future<void> signOut() async {
-    // Local session clearing simulation
-    await Future.delayed(const Duration(milliseconds: 100));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('auth_token');
   }
 
   @override
@@ -135,10 +178,34 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     String? address,
     String? image_url,
   }) async {
-    // Profile update endpoint is not yet configured on the backend
-    throw UnimplementedError(
-      'updateProfile is not yet implemented on the backend endpoints',
-    );
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    
+    if (token == null) {
+      throw Exception('No token found');
+    }
+    
+    try {
+      final response = await dio.put(
+        '/api/users/me',
+        data: {
+          'name': name,
+          'address': address,
+          'imageUrl': image_url,
+        },
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        return UserModel.fromJson(data['data'] as Map<String, dynamic>);
+      } else {
+        throw Exception('Failed to update profile');
+      }
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Profile update error');
+    }
   }
 
   String? _extractErrorMessage(dynamic responseData) {
