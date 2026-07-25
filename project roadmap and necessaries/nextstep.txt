@@ -1,0 +1,11 @@
+Please implement Module 4, Phase 1 (Report Submission and Linking) for both Backend and Frontend.
+
+Backend tasks:
+1. Update the Report submission endpoint (`POST /api/reports`) to handle sub-report creation. If a `parentReportId` is provided, it should create a `sub_report` entry linked to the parent. Otherwise, it should create a standard `report` entry.
+2. Introduce an `incident_group` concept if it is missing, or group them logically in the return payload (a parent report and its sub-reports).
+
+Frontend tasks:
+1. Build a "Create Report" UI (could be a Floating Action Button on the MapPage or a dedicated screen).
+2. When a user tries to submit a report, if there are existing incidents within 5km (using the proximity detection implemented earlier), show a prompt to "Link" the report to an existing incident group (creating a sub-report) or proceed with creating a completely new incident.
+
+Please provide the implementation plan following the standard structure before coding.
