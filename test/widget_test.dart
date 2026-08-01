@@ -1,13 +1,85 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ctrc/features/Auth/data/datasources/auth_remote_datasource.dart';
+import 'package:ctrc/features/Auth/domain/models/user_model.dart';
+import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
 import 'package:ctrc/main.dart';
 
-void main() {
-  testWidgets('App renders sign in page', (WidgetTester tester) async {
-    await tester.pumpWidget(const ProviderScope(child: CTRCApp()));
+/// Offline stand-in so the splash screen's backend ping does not reach out to
+/// the network during tests.
+class _FakeAuthRemoteDataSource implements AuthRemoteDataSource {
+  @override
+  Future<bool> checkHealth() async => false;
 
-    expect(find.text('Welcome Back'), findsOneWidget);
-    expect(find.text('Sign in to your account'), findsOneWidget);
-    expect(find.text('Sign In'), findsOneWidget);
+  @override
+  Future<UserModel> getCurrentUser() async => throw Exception('No token found');
+
+  @override
+  Future<void> signOut() async {}
+
+  @override
+  Future<void> resetPassword(String email) async {}
+
+  @override
+  Future<UserModel> signIn({
+    required String email,
+    required String password,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<UserModel> signUp({
+    required String email,
+    required String password,
+    required String name,
+    String? address,
+    String? image_url,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<UserModel> updateProfile({
+    String? name,
+    String? address,
+    String? image_url,
+  }) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<UserModel> uploadAvatar(String filePath) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async =>
+      throw UnimplementedError();
+}
+
+void main() {
+  setUp(() {
+    // Settings and auth both read preferences on startup.
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  testWidgets('App opens on the splash screen', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authRemoteDataSourceProvider
+              .overrideWithValue(_FakeAuthRemoteDataSource()),
+        ],
+        child: const CTRCApp(),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('CTRC System'), findsOneWidget);
+
+    // Let the splash finish its redirect so no timers outlive the test.
+    await tester.pumpAndSettle();
   });
 }

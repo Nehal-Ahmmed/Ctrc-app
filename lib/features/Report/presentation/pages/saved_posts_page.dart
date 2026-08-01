@@ -1,3 +1,4 @@
+import 'package:ctrc/core/l10n/app_strings.dart';
 import 'package:ctrc/core/widgets/sub_page_app_bar.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
@@ -147,14 +148,15 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
   @override
   Widget build(BuildContext context) {
     final isAuthenticated = ref.watch(authProvider).user != null;
+    final strings = ref.watch(appStringsProvider);
 
     return Scaffold(
       backgroundColor: Colors.grey[200],
       appBar: SubPageAppBar(
-        title: 'Saved Posts',
+        title: strings.savedPosts,
         menuItems: [
           SubPageMenuItem(
-            label: 'Refresh',
+            label: strings.refresh,
             icon: Icons.refresh,
             onSelected: _fetchSavedReports,
           ),
@@ -207,7 +209,7 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
                 backgroundColor: Colors.blue,
                 foregroundColor: Colors.white,
               ),
-              child: const Text('Log In'),
+              child: Text(ref.watch(appStringsProvider).logIn),
             ),
           ],
         ),
@@ -223,7 +225,7 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
         const SizedBox(height: 12),
         Center(
           child: Text(
-            'You have no saved posts.',
+            ref.watch(appStringsProvider).noSavedPosts,
             style: TextStyle(color: Colors.grey[600]),
           ),
         ),

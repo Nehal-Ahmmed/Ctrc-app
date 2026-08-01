@@ -7,7 +7,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/providers/settings_provider.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
+import '../../../Notifications/presentation/providers/notification_provider.dart';
 import '../../../Report/data/datasources/report_remote_datasource.dart';
 import '../../../Report/domain/models/report_model.dart';
 import '../../../Report/presentation/widgets/create_report_bottom_sheet.dart';
@@ -355,6 +357,14 @@ class _MapPageState extends ConsumerState<MapPage> {
         _isLoadingAlerts = false;
       });
       ref.read(mapAreaAlertCountProvider.notifier).state = visible.length;
+
+      // Feed the alert inbox from the same data the map just drew.
+      ref.read(notificationsProvider.notifier).ingest(
+            visible,
+            viewerLocation: _currentLocation,
+            viewerUserId: _viewerUserId,
+            enabled: ref.read(settingsProvider).nearbyAlertsEnabled,
+          );
     } catch (e) {
       if (!mounted || requestId != _areaRequestId) return;
       setState(() => _isLoadingAlerts = false);

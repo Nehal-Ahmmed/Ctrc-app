@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
+import '../../features/Auth/presentation/pages/forgot_password_page.dart';
 import '../../features/Auth/presentation/pages/sign_in_page.dart';
 import '../../features/Auth/presentation/pages/sign_up_page.dart';
 import '../../features/Home/presentation/pages/home_page.dart';
 import '../../features/Map/presentation/pages/map_page.dart';
+import '../../features/Notifications/presentation/pages/notifications_page.dart';
+import '../../features/Profile/presentation/pages/change_password_page.dart';
+import '../../features/Profile/presentation/pages/edit_profile_page.dart';
+import '../../features/Profile/presentation/pages/help_center_page.dart';
+import '../../features/Profile/presentation/pages/privacy_policy_page.dart';
 import '../../features/Profile/presentation/pages/profile_page.dart';
 import '../../features/Profile/presentation/pages/settings_page.dart';
 import '../../features/Report/domain/models/report_model.dart';
@@ -36,6 +42,11 @@ class AppRouter {
         path: '/sign-up',
         name: 'signUp',
         builder: (context, state) => const SignUpPage(),
+      ),
+      GoRoute(
+        path: '/forgot-password',
+        name: 'forgotPassword',
+        builder: (context, state) => const ForgotPasswordPage(),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
@@ -72,6 +83,31 @@ class AppRouter {
         path: '/settings',
         parentNavigatorKey: _rootNavigatorKey, // Covers bottom nav
         builder: (context, state) => const SettingsPage(),
+      ),
+      GoRoute(
+        path: '/edit-profile',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const EditProfilePage(),
+      ),
+      GoRoute(
+        path: '/change-password',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const ChangePasswordPage(),
+      ),
+      GoRoute(
+        path: '/help',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const HelpCenterPage(),
+      ),
+      GoRoute(
+        path: '/privacy',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const PrivacyPolicyPage(),
+      ),
+      GoRoute(
+        path: '/notifications',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const NotificationsPage(),
       ),
       GoRoute(
         path: '/my-reports',

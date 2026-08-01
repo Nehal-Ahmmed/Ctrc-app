@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/l10n/app_strings.dart';
 import '../providers/auth_provider.dart';
 
 class SignUpPage extends ConsumerStatefulWidget {
@@ -48,6 +49,7 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
+    final strings = ref.watch(appStringsProvider);
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -69,7 +71,7 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Create Account',
+                    strings.createAccount,
                     textAlign: TextAlign.center,
                     style: theme.textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.bold,
@@ -149,10 +151,10 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Email',
-                      prefixIcon: Icon(Icons.email_outlined),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: strings.email,
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
@@ -175,7 +177,7 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                     obscureText: _obscurePassword,
                     textInputAction: TextInputAction.next,
                     decoration: InputDecoration(
-                      labelText: 'Password',
+                      labelText: strings.password,
                       prefixIcon: const Icon(Icons.lock_outlined),
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
@@ -244,7 +246,7 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                             width: 20,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('Create Account'),
+                        : Text(strings.createAccount),
                   ),
                   const SizedBox(height: 24),
 
@@ -253,14 +255,14 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'Already have an account? ',
+                        strings.alreadyHaveAnAccount,
                         style: theme.textTheme.bodyMedium,
                       ),
                       TextButton(
                         onPressed: () {
                           context.go('/sign-in');
                         },
-                        child: const Text('Sign In'),
+                        child: Text(strings.logIn),
                       ),
                     ],
                   ),

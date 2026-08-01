@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:ctrc/core/l10n/app_strings.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/comment_model.dart';
@@ -121,6 +122,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
     final isAuthenticated = user != null;
+    final strings = ref.watch(appStringsProvider);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -152,7 +154,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'Comments (${_comments.length})',
+                    '${strings.comments} (${_comments.length})',
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -304,7 +306,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
                                 maxLines: null,
                                 decoration: InputDecoration(
                                   hintText: isAuthenticated
-                                      ? 'Write a comment...'
+                                      ? strings.addComment
                                       : 'Log in to write a comment...',
                                   border: InputBorder.none,
                                   isDense: true,

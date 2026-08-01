@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:ctrc/core/l10n/app_strings.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
@@ -112,6 +113,8 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       imageUrl: user?.image_url,
     );
     
+    if (!mounted) return;
+
     if (error == null) {
       setState(() {
         _isEditing = false;
@@ -201,6 +204,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
+    final strings = ref.watch(appStringsProvider);
     final user = authState.user;
 
     if (user == null) {
@@ -212,10 +216,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           children: [
             Icon(Icons.account_circle, size: 80, color: Colors.grey[400]),
             const SizedBox(height: 16),
-            const Text(
-              'Sign in to view your profile and manage your reports.',
+            Text(
+              strings.signInToViewProfile,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+              style: const TextStyle(fontSize: 16, color: Colors.grey),
             ),
             const SizedBox(height: 24),
             ElevatedButton(
@@ -226,7 +230,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text('Log In / Sign Up', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              child: Text('${strings.logIn} / ${strings.signUp}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -343,7 +347,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                         style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                       ),
                       const SizedBox(height: 16),
-                      const TabBar(
+                      TabBar(
                         labelColor: Colors.blue,
                         unselectedLabelColor: Colors.grey,
                         indicatorColor: Colors.blue,
@@ -352,9 +356,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.info_outline, size: 18),
-                                SizedBox(width: 8),
-                                Text('Profile Info'),
+                                const Icon(Icons.info_outline, size: 18),
+                                const SizedBox(width: 8),
+                                Text(strings.profileInfo),
                               ],
                             ),
                           ),
@@ -362,9 +366,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.article_outlined, size: 18),
-                                SizedBox(width: 8),
-                                Text('My Reports'),
+                                const Icon(Icons.article_outlined, size: 18),
+                                const SizedBox(width: 8),
+                                Text(strings.myReports),
                               ],
                             ),
                           ),
@@ -378,7 +382,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           },
           body: TabBarView(
             children: [
-              _buildProfileInfoTab(user, authState.isSubmitting),
+              _buildProfileInfoTab(user, authState.isSubmitting, strings),
               _buildMyReportsTab(),
             ],
           ),
@@ -387,7 +391,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     );
   }
 
-  Widget _buildProfileInfoTab(dynamic user, bool isSubmitting) {
+  Widget _buildProfileInfoTab(dynamic user, bool isSubmitting, AppStrings strings) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Form(
@@ -406,12 +410,12 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (!_isEditing) ...[
-                      _buildInfoRow(Icons.person_outline, 'Name', user.name),
+                      _buildInfoRow(Icons.person_outline, strings.name, user.name),
                       const Divider(),
-                      _buildInfoRow(Icons.email_outlined, 'Email', user.email),
+                      _buildInfoRow(Icons.email_outlined, strings.email, user.email),
                       const Divider(),
-                      _buildInfoRow(Icons.location_on_outlined, 'Address', 
-                          (user.address ?? '').isEmpty ? 'No address specified' : user.address!),
+                      _buildInfoRow(Icons.location_on_outlined, strings.address,
+                          (user.address ?? '').isEmpty ? strings.noAddressSpecified : user.address!),
                       const SizedBox(height: 24),
                       ElevatedButton.icon(
                         onPressed: () {
@@ -422,7 +426,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                           });
                         },
                         icon: const Icon(Icons.edit, size: 18),
-                        label: const Text('Edit Profile'),
+                        label: Text(strings.editProfile),
                         style: ElevatedButton.styleFrom(
                           minimumSize: const Size.fromHeight(50),
                           backgroundColor: Colors.blue,
@@ -473,7 +477,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               ),
-                              child: const Text('Cancel'),
+                              child: Text(strings.cancel),
                             ),
                           ),
                           const SizedBox(width: 16),
@@ -495,7 +499,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                                         color: Colors.white,
                                       ),
                                     )
-                                  : const Text('Save'),
+                                  : Text(strings.save),
                             ),
                           ),
                         ],
@@ -513,7 +517,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                   context.go('/home');
                 },
                 icon: const Icon(Icons.logout),
-                label: const Text('Sign Out'),
+                label: Text(strings.signOut),
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size.fromHeight(50),
                   backgroundColor: Colors.red[50],
@@ -565,13 +569,13 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             Icon(Icons.article_outlined, size: 48, color: Colors.grey[400]),
             const SizedBox(height: 12),
             Text(
-              "You haven't posted any reports yet.",
+              ref.watch(appStringsProvider).noReportsYet,
               style: TextStyle(color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _fetchMyReports,
-              child: const Text('Refresh'),
+              child: Text(ref.watch(appStringsProvider).refresh),
             ),
           ],
         ),

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../l10n/app_strings.dart';
 import '../../features/Auth/presentation/providers/auth_provider.dart';
 import '../../features/Map/domain/models/map_scope.dart';
 import '../../features/Map/presentation/providers/map_controls_provider.dart';
+import '../../features/Notifications/presentation/providers/notification_provider.dart';
 
 /// Index of the Map branch inside the [StatefulShellRoute].
 const int _mapBranchIndex = 1;
@@ -33,6 +35,7 @@ class MainScaffold extends ConsumerWidget {
   /// The map's own services, mirrored into the drawer so every standard map
   /// capability is reachable from the side bar as well as from the map itself.
   List<Widget> _buildMapSection(BuildContext context, WidgetRef ref) {
+    final strings = ref.watch(appStringsProvider);
     final scope = ref.watch(mapScopeProvider);
     final areaAlerts = ref.watch(mapAreaAlertCountProvider);
     final routeAlerts = ref.watch(mapRouteAlertCountProvider);
@@ -68,11 +71,11 @@ class MainScaffold extends ConsumerWidget {
     }
 
     return [
-      const Padding(
-        padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
         child: Text(
-          'MAP',
-          style: TextStyle(
+          strings.mapSection,
+          style: const TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.bold,
             letterSpacing: 1.1,
@@ -92,7 +95,7 @@ class MainScaffold extends ConsumerWidget {
       if (routeAlerts != null) tile(MapAction.clearRoute),
       ExpansionTile(
         leading: Icon(scope.icon),
-        title: const Text('Alert radius'),
+        title: Text(strings.alertRadius),
         subtitle: Text(
           scope.label,
           style: const TextStyle(fontSize: 11.5),
@@ -124,14 +127,54 @@ class MainScaffold extends ConsumerWidget {
     ];
   }
 
+  /// Bell with an unread badge. Alerts are collected from the nearby-incident
+  /// feed, so guests get them too.
+  Widget _buildNotificationButton(BuildContext context, WidgetRef ref) {
+    final unread = ref.watch(unreadNotificationCountProvider);
+
+    return IconButton(
+      tooltip: ref.watch(appStringsProvider).notifications,
+      onPressed: () => context.push('/notifications'),
+      icon: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Icon(unread > 0 ? Icons.notifications_active : Icons.notifications),
+          if (unread > 0)
+            Positioned(
+              top: -4,
+              right: -6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                constraints: const BoxConstraints(minWidth: 17),
+                decoration: BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text(
+                  unread > 99 ? '99+' : '$unread',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
     final isAuth = authState.status == AuthStatus.authenticated;
+    final strings = ref.watch(appStringsProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CTRC System'),
+        title: Text(strings.appTitle),
         leading: Builder(
           builder: (context) => IconButton(
             icon: const Icon(Icons.menu),
@@ -150,14 +193,10 @@ class MainScaffold extends ConsumerWidget {
                   backgroundColor: Colors.blue,
                   foregroundColor: Colors.white,
                 ),
-                child: const Text('Log In'),
+                child: Text(strings.logIn),
               ),
             ),
-          if (isAuth)
-            IconButton(
-              icon: const Icon(Icons.notifications),
-              onPressed: () {},
-            ),
+          _buildNotificationButton(context, ref),
           if (isAuth && authState.user != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -191,10 +230,10 @@ class MainScaffold extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Crowdsourced Traffic\n& Road Condition',
-                          style: TextStyle(
-                            color: Colors.white, 
+                        Text(
+                          strings.drawerHeadline,
+                          style: const TextStyle(
+                            color: Colors.white,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -240,9 +279,9 @@ class MainScaffold extends ConsumerWidget {
                                         overflow: TextOverflow.ellipsis,
                                       )
                                     else
-                                      const Text(
-                                        'Unknown Location',
-                                        style: TextStyle(
+                                      Text(
+                                        strings.unknownLocation,
+                                        style: const TextStyle(
                                           color: Colors.white70,
                                           fontSize: 13,
                                         ),
@@ -259,7 +298,7 @@ class MainScaffold extends ConsumerWidget {
                   if (isAuth) ...[
                     ListTile(
                       leading: const Icon(Icons.list_alt),
-                      title: const Text('My Reports'),
+                      title: Text(strings.myReports),
                       onTap: () {
                         Navigator.pop(context);
                         context.push('/my-reports');
@@ -267,7 +306,7 @@ class MainScaffold extends ConsumerWidget {
                     ),
                     ListTile(
                       leading: const Icon(Icons.bookmark_border),
-                      title: const Text('Saved Posts'),
+                      title: Text(strings.savedPosts),
                       onTap: () {
                         Navigator.pop(context);
                         context.push('/saved-posts');
@@ -278,7 +317,7 @@ class MainScaffold extends ConsumerWidget {
                   const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.settings),
-                    title: const Text('Settings'),
+                    title: Text(strings.settings),
                     onTap: () {
                       Navigator.pop(context); // close drawer
                       context.push('/settings'); // go to settings (sub-page)
@@ -293,7 +332,7 @@ class MainScaffold extends ConsumerWidget {
                 child: isAuth
                     ? ListTile(
                         leading: const Icon(Icons.logout, color: Colors.redAccent),
-                        title: const Text('Sign Out', style: TextStyle(color: Colors.redAccent)),
+                        title: Text(strings.signOut, style: const TextStyle(color: Colors.redAccent)),
                         onTap: () {
                           Navigator.pop(context); // close drawer
                           ref.read(authProvider.notifier).signOut();
@@ -309,7 +348,7 @@ class MainScaffold extends ConsumerWidget {
                               context.push('/sign-in');
                             },
                             icon: const Icon(Icons.login, color: Colors.white),
-                            label: const Text('Log In', style: TextStyle(color: Colors.white)),
+                            label: Text(strings.logIn, style: const TextStyle(color: Colors.white)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blue,
                             ),
@@ -320,7 +359,7 @@ class MainScaffold extends ConsumerWidget {
                               context.push('/sign-up');
                             },
                             icon: const Icon(Icons.person_add, color: Colors.white),
-                            label: const Text('Sign Up', style: TextStyle(color: Colors.white)),
+                            label: Text(strings.signUp, style: const TextStyle(color: Colors.white)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blue,
                             ),
@@ -336,18 +375,18 @@ class MainScaffold extends ConsumerWidget {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: navigationShell.currentIndex,
         onTap: _onTap,
-        items: const [
+        items: [
           BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
+            icon: const Icon(Icons.home),
+            label: strings.navHome,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.map),
-            label: 'Map',
+            icon: const Icon(Icons.map),
+            label: strings.navMap,
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Profile',
+            icon: const Icon(Icons.person),
+            label: strings.navProfile,
           ),
         ],
       ),

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../../../../core/providers/settings_provider.dart';
+import '../../../../core/l10n/app_strings.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 import '../../../Map/data/datasources/geocoding_datasource.dart';
 import '../../../Map/domain/services/incident_severity.dart';
@@ -10,6 +10,13 @@ import '../../../Map/domain/utils/geo_utils.dart';
 import '../../data/datasources/report_remote_datasource.dart';
 import '../../domain/models/report_category.dart';
 import 'link_incident_sheet.dart';
+
+/// How far out to look for an incident this report might belong to.
+///
+/// Fixed at the roadmap's 5 km rather than the user's browse radius: how wide
+/// you like your feed is a display preference, whereas "is this the same
+/// event?" is a property of the road.
+const double kLinkSearchRadiusKm = 5.0;
 
 class CreateReportBottomSheet extends ConsumerStatefulWidget {
   final double latitude;
@@ -64,7 +71,9 @@ class _CreateReportBottomSheetState
     super.initState();
     _linkedParentId = widget.parentReportId;
     _linkedParentTitle = widget.parentTitle;
-    _resolvedAddress = widget.locationLabel;
+
+    final label = widget.locationLabel?.trim();
+    _resolvedAddress = (label == null || label.isEmpty) ? null : label;
     if (_resolvedAddress == null) _resolveAddress();
   }
 
@@ -142,10 +151,9 @@ class _CreateReportBottomSheetState
 
     // Link-or-create: only when the reporter has not already picked a parent.
     if (parentReportId == null) {
-      final radiusKm = ref.read(settingsProvider).reportRadius;
       final candidates = await _findNearbyIncidents(
         userId: userId,
-        radiusKm: radiusKm,
+        radiusKm: kLinkSearchRadiusKm,
       );
 
       if (!mounted) return;
@@ -154,7 +162,7 @@ class _CreateReportBottomSheetState
         final choice = await LinkIncidentSheet.show(
           context,
           candidates: candidates,
-          radiusLabel: 'within ${radiusKm.toInt()} km',
+          radiusLabel: 'within ${kLinkSearchRadiusKm.toInt()} km',
         );
 
         if (!mounted) return;
@@ -199,6 +207,7 @@ class _CreateReportBottomSheetState
   @override
   Widget build(BuildContext context) {
     final isAuthenticated = ref.watch(authProvider).user != null;
+    final strings = ref.watch(appStringsProvider);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -215,7 +224,9 @@ class _CreateReportBottomSheetState
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                _isSubReport ? 'Add to this incident' : 'Report new incident',
+                _isSubReport
+                    ? strings.addToThisIncident
+                    : strings.reportNewIncident,
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -233,21 +244,21 @@ class _CreateReportBottomSheetState
                 TextFormField(
                   controller: _titleController,
                   textCapitalization: TextCapitalization.sentences,
-                  decoration: const InputDecoration(
-                    labelText: 'Title',
+                  decoration: InputDecoration(
+                    labelText: strings.titleLabel,
                     hintText: 'e.g. Truck blocking the left lane',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                   ),
                   validator: (value) => (value == null || value.trim().isEmpty)
-                      ? 'Required'
+                      ? strings.required
                       : null,
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   initialValue: _category,
-                  decoration: const InputDecoration(
-                    labelText: 'Category',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: strings.categoryLabel,
+                    border: const OutlineInputBorder(),
                   ),
                   items: ReportCategory.values
                       .map(
@@ -274,7 +285,7 @@ class _CreateReportBottomSheetState
                 controller: _descriptionController,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
-                  labelText: 'Description',
+                  labelText: strings.descriptionLabel,
                   hintText: _isSubReport
                       ? 'What is happening there right now?'
                       : 'Add anything that helps other drivers',
@@ -282,7 +293,7 @@ class _CreateReportBottomSheetState
                 ),
                 maxLines: 3,
                 validator: (value) => (value == null || value.trim().isEmpty)
-                    ? 'Required'
+                    ? strings.required
                     : null,
               ),
               const SizedBox(height: 24),
@@ -306,8 +317,8 @@ class _CreateReportBottomSheetState
                       )
                     : Text(
                         isAuthenticated
-                            ? 'Submit report'
-                            : 'Log in to report',
+                            ? strings.submitReport
+                            : strings.logInToReport,
                         style: const TextStyle(fontSize: 16),
                       ),
               ),

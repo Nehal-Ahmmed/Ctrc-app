@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/l10n/app_strings.dart';
 import '../../../../core/widgets/sub_page_app_bar.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 import '../../../Map/domain/services/incident_severity.dart';
@@ -11,6 +12,7 @@ import '../../data/datasources/report_remote_datasource.dart';
 import '../../domain/models/comment_model.dart';
 import '../../domain/models/report_category.dart';
 import '../../domain/models/report_model.dart';
+import '../../domain/services/vote_toggle.dart';
 import '../widgets/create_report_bottom_sheet.dart';
 
 /// Full detail view for a single incident report.
@@ -191,39 +193,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     final report = _report;
     if (report == null) return;
 
-    // Mirror the server: voting the same way again removes the vote, voting the
-    // other way moves it across.
-    final currentVote = report.userVoteType;
-    String? newVote;
-    var upDelta = 0;
-    var downDelta = 0;
-
-    if (type == 'up') {
-      if (currentVote == 'up') {
-        upDelta = -1;
-      } else {
-        newVote = 'up';
-        upDelta = 1;
-        if (currentVote == 'down') downDelta = -1;
-      }
-    } else {
-      if (currentVote == 'down') {
-        downDelta = -1;
-      } else {
-        newVote = 'down';
-        downDelta = 1;
-        if (currentVote == 'up') upDelta = -1;
-      }
-    }
-
-    setState(() {
-      _report = report.copyWith(
-        userVoteType: newVote,
-        clearUserVoteType: newVote == null,
-        upvoteCount: report.upvoteCount + upDelta,
-        downvoteCount: report.downvoteCount + downDelta,
-      );
-    });
+    setState(() => _report = VoteToggle.apply(report, type));
 
     try {
       await _dataSource.voteReport(
@@ -295,11 +265,12 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
   @override
   Widget build(BuildContext context) {
     final report = _report;
+    final strings = ref.watch(appStringsProvider);
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: SubPageAppBar(
-        title: 'Report details',
+        title: strings.reportDetails,
         menuItems: [
           SubPageMenuItem(
             label: 'Add an update',
@@ -307,13 +278,15 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
             onSelected: _addUpdate,
           ),
           SubPageMenuItem(
-            label: 'Refresh',
+            label: strings.refresh,
             icon: Icons.refresh,
             onSelected: _load,
           ),
           if (report != null)
             SubPageMenuItem(
-              label: report.isSaved ? 'Remove from saved' : 'Save post',
+              label: report.isSaved
+                  ? strings.removeFromSaved
+                  : strings.savePost,
               icon: report.isSaved ? Icons.bookmark : Icons.bookmark_border,
               onSelected: _toggleSave,
             ),
@@ -355,7 +328,10 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
               style: TextStyle(color: Colors.grey[700]),
             ),
             const SizedBox(height: 16),
-            ElevatedButton(onPressed: _load, child: const Text('Retry')),
+            ElevatedButton(
+              onPressed: _load,
+              child: Text(ref.watch(appStringsProvider).retry),
+            ),
           ],
         ),
       ),
@@ -569,7 +545,9 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
             icon: Icon(Icons.add_comment_outlined, color: Colors.grey[700]),
           ),
           IconButton(
-            tooltip: report.isSaved ? 'Remove from saved' : 'Save post',
+            tooltip: report.isSaved
+                ? ref.read(appStringsProvider).removeFromSaved
+                : ref.read(appStringsProvider).savePost,
             onPressed: _toggleSave,
             icon: Icon(
               report.isSaved ? Icons.bookmark : Icons.bookmark_border,
@@ -591,7 +569,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Comments (${_comments.length})',
+            '${ref.watch(appStringsProvider).comments} (${_comments.length})',
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
@@ -683,8 +661,8 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
                 maxLines: 4,
                 textCapitalization: TextCapitalization.sentences,
                 textInputAction: TextInputAction.newline,
-                decoration: const InputDecoration(
-                  hintText: 'Add a comment...',
+                decoration: InputDecoration(
+                  hintText: ref.watch(appStringsProvider).addComment,
                   border: InputBorder.none,
                 ),
               ),

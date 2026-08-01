@@ -7,21 +7,27 @@ class SettingsState {
   final double reportRadius;
   final String languageCode;
 
+  /// Collect in-app alerts for incidents reported inside [reportRadius].
+  final bool nearbyAlertsEnabled;
+
   const SettingsState({
     this.themeMode = ThemeMode.system,
     this.reportRadius = 10.0,
     this.languageCode = 'en',
+    this.nearbyAlertsEnabled = true,
   });
 
   SettingsState copyWith({
     ThemeMode? themeMode,
     double? reportRadius,
     String? languageCode,
+    bool? nearbyAlertsEnabled,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
       reportRadius: reportRadius ?? this.reportRadius,
       languageCode: languageCode ?? this.languageCode,
+      nearbyAlertsEnabled: nearbyAlertsEnabled ?? this.nearbyAlertsEnabled,
     );
   }
 }
@@ -33,21 +39,25 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    
+
     // Load theme
     final themeIndex = prefs.getInt('theme_mode') ?? ThemeMode.system.index;
     final themeMode = ThemeMode.values[themeIndex];
-    
+
     // Load radius
     final radius = prefs.getDouble('report_radius') ?? 10.0;
-    
+
     // Load language
     final lang = prefs.getString('language_code') ?? 'en';
-    
+
+    // Load alert preference
+    final alerts = prefs.getBool('nearby_alerts_enabled') ?? true;
+
     state = state.copyWith(
       themeMode: themeMode,
       reportRadius: radius,
       languageCode: lang,
+      nearbyAlertsEnabled: alerts,
     );
   }
 
@@ -67,6 +77,12 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     state = state.copyWith(languageCode: code);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('language_code', code);
+  }
+
+  Future<void> updateNearbyAlerts(bool enabled) async {
+    state = state.copyWith(nearbyAlertsEnabled: enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('nearby_alerts_enabled', enabled);
   }
 }
 

@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:ctrc/core/l10n/app_strings.dart';
 import 'package:ctrc/core/providers/settings_provider.dart';
+import 'package:ctrc/features/Notifications/presentation/providers/notification_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/report_category.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
@@ -104,6 +106,14 @@ class _HomePageState extends ConsumerState<HomePage> {
         setState(() {
           _feedReports = reports;
         });
+
+        // Anything new near the user becomes an entry in the alert inbox.
+        ref.read(notificationsProvider.notifier).ingest(
+              reports,
+              viewerLocation: _currentLocation,
+              viewerUserId: userId,
+              enabled: ref.read(settingsProvider).nearbyAlertsEnabled,
+            );
       }
     } catch (e, stack) {
       debugPrint('Error fetching feed: $e\n$stack');
@@ -124,14 +134,14 @@ class _HomePageState extends ConsumerState<HomePage> {
   void _openCreateReportSheet() async {
     if (_currentLocation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Waiting for GPS location...')),
+        SnackBar(content: Text(ref.read(appStringsProvider).waitingForGps)),
       );
       return;
     }
 
     if (ref.read(authProvider).user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to report an incident')),
+        SnackBar(content: Text(ref.read(appStringsProvider).logInToReport)),
       );
       return;
     }
@@ -160,7 +170,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     final user = ref.read(authProvider).user;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to vote')),
+        SnackBar(content: Text(ref.read(appStringsProvider).logInToVote)),
       );
       return;
     }
@@ -220,10 +230,12 @@ class _HomePageState extends ConsumerState<HomePage> {
       },
     );
 
+    final strings = ref.watch(appStringsProvider);
+
     return Scaffold(
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
-        title: const Text('Local Feed'),
+        title: Text(strings.localFeed),
         elevation: 1,
       ),
       body: RefreshIndicator(
@@ -254,10 +266,17 @@ class _HomePageState extends ConsumerState<HomePage> {
                         const SizedBox(height: 12),
                         Text(
                           _selectedCategory == ReportCategory.allLabel
-                              ? 'No incidents reported within '
-                                  '${ref.watch(settingsProvider).reportRadius.toInt()} km.'
-                              : 'No "$_selectedCategory" reports within '
-                                  '${ref.watch(settingsProvider).reportRadius.toInt()} km.',
+                              ? strings.noIncidentsWithin(
+                                  ref.watch(settingsProvider)
+                                      .reportRadius
+                                      .toInt(),
+                                )
+                              : strings.noCategoryIncidentsWithin(
+                                  _selectedCategory,
+                                  ref.watch(settingsProvider)
+                                      .reportRadius
+                                      .toInt(),
+                                ),
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey[600]),
                         ),
@@ -293,10 +312,13 @@ class _HomePageState extends ConsumerState<HomePage> {
         itemBuilder: (context, index) {
           final category = _categories[index];
           final isSelected = category == _selectedCategory;
+          final label = category == ReportCategory.allLabel
+              ? ref.watch(appStringsProvider).categoryAll
+              : category;
           return Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: FilterChip(
-              label: Text(category),
+              label: Text(label),
               selected: isSelected,
               onSelected: (selected) {
                 if (selected) {
@@ -351,7 +373,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   borderRadius: BorderRadius.circular(24),
                 ),
                 child: Text(
-                  'What\'s happening nearby?',
+                  ref.watch(appStringsProvider).whatsHappeningNearby,
                   style: TextStyle(color: Colors.grey[600]),
                 ),
               ),
@@ -366,7 +388,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     final user = ref.read(authProvider).user;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to save posts')),
+        SnackBar(content: Text(ref.read(appStringsProvider).logInToSave)),
       );
       return;
     }

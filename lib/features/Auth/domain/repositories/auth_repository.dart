@@ -29,4 +29,10 @@ abstract class AuthRepository {
   });
 
   Future<Either<Failure, UserModel>> uploadAvatar(String filePath);
+
+  Future<Either<Failure, void>> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  });
 }

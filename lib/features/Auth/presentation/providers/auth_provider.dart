@@ -228,6 +228,50 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
+  /// Returns null on success, or a message describing why it failed.
+  Future<String?> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    state = state.copyWith(isSubmitting: true, error: null);
+
+    final result = await _authRepository.changePassword(
+      currentPassword: currentPassword,
+      newPassword: newPassword,
+      confirmPassword: confirmPassword,
+    );
+
+    return result.fold(
+      (failure) {
+        state = state.copyWith(isSubmitting: false, error: failure.message);
+        return failure.message;
+      },
+      (_) {
+        state = state.copyWith(isSubmitting: false, error: null);
+        return null;
+      },
+    );
+  }
+
+  /// Kicks off a password reset for [email].
+  Future<String?> requestPasswordReset(String email) async {
+    state = state.copyWith(isSubmitting: true, error: null);
+
+    final result = await _authRepository.resetPassword(email);
+
+    return result.fold(
+      (failure) {
+        state = state.copyWith(isSubmitting: false, error: failure.message);
+        return failure.message;
+      },
+      (_) {
+        state = state.copyWith(isSubmitting: false, error: null);
+        return null;
+      },
+    );
+  }
+
   void clearError() {
     state = state.copyWith(error: null);
   }

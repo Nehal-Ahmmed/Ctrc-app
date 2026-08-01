@@ -1,3 +1,4 @@
+import 'package:ctrc/core/l10n/app_strings.dart';
 import 'package:ctrc/core/widgets/sub_page_app_bar.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
@@ -120,14 +121,15 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
   @override
   Widget build(BuildContext context) {
     final isAuthenticated = ref.watch(authProvider).user != null;
+    final strings = ref.watch(appStringsProvider);
 
     return Scaffold(
       backgroundColor: Colors.grey[200],
       appBar: SubPageAppBar(
-        title: 'My Reports',
+        title: strings.myReports,
         menuItems: [
           SubPageMenuItem(
-            label: 'Refresh',
+            label: strings.refresh,
             icon: Icons.refresh,
             onSelected: _fetchMyReports,
           ),
@@ -180,7 +182,7 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
                 backgroundColor: Colors.blue,
                 foregroundColor: Colors.white,
               ),
-              child: const Text('Log In'),
+              child: Text(ref.watch(appStringsProvider).logIn),
             ),
           ],
         ),
@@ -197,7 +199,7 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
         const SizedBox(height: 12),
         Center(
           child: Text(
-            "You haven't posted any reports yet.",
+            ref.watch(appStringsProvider).noReportsYet,
             style: TextStyle(color: Colors.grey[600]),
           ),
         ),
