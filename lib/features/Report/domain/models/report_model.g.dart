@@ -19,6 +19,9 @@ ReportModel _$ReportModelFromJson(Map<String, dynamic> json) => ReportModel(
   expiresAt: json['expiresAt'] as String?,
   createdAt: json['createdAt'] as String?,
   isSaved: json['isSaved'] as bool? ?? false,
+  userVoteType: json['userVoteType'] as String?,
+  authorName: json['authorName'] as String?,
+  authorImageUrl: json['authorImageUrl'] as String?,
   location: json['location'] == null
       ? null
       : LocationModel.fromJson(json['location'] as Map<String, dynamic>),
@@ -38,6 +41,9 @@ Map<String, dynamic> _$ReportModelToJson(ReportModel instance) =>
       'expiresAt': instance.expiresAt,
       'createdAt': instance.createdAt,
       'isSaved': instance.isSaved,
+      'userVoteType': instance.userVoteType,
+      'authorName': instance.authorName,
+      'authorImageUrl': instance.authorImageUrl,
       'location': instance.location?.toJson(),
     };
 

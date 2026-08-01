@@ -6,6 +6,7 @@ import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.d
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
 import 'package:ctrc/features/Report/presentation/widgets/create_report_bottom_sheet.dart';
 import 'package:ctrc/features/Report/presentation/widgets/report_card_widget.dart';
+import 'package:ctrc/features/Report/presentation/widgets/comments_bottom_sheet.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
@@ -91,11 +92,15 @@ class _HomePageState extends ConsumerState<HomePage> {
     });
 
     try {
+      final user = ref.read(authProvider).user;
+      final userId = user != null ? int.tryParse(user.user_id) : null;
+
       final reports = await _remoteDataSource.getNearbyReports(
         lat: _currentLocation!.latitude,
         lng: _currentLocation!.longitude,
         radius: 5.0, // 5km
         category: _selectedCategory,
+        userId: userId,
       );
       
       if (mounted) {
@@ -103,7 +108,8 @@ class _HomePageState extends ConsumerState<HomePage> {
           _feedReports = reports;
         });
       }
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('Error fetching feed: $e\n$stack');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error fetching feed: $e')),
@@ -156,13 +162,48 @@ class _HomePageState extends ConsumerState<HomePage> {
       return;
     }
     
-    // Optimistic update
+    // Save original state
+    final originalReport = _feedReports[index];
+    
+    // Determine new state based on current userVoteType
+    final currentVote = report.userVoteType;
+    String? newVote;
+    int upDelta = 0;
+    int downDelta = 0;
+
+    if (type == 'up') {
+      if (currentVote == 'up') {
+        newVote = null;
+        upDelta = -1;
+      } else if (currentVote == 'down') {
+        newVote = 'up';
+        upDelta = 1;
+        downDelta = -1;
+      } else {
+        newVote = 'up';
+        upDelta = 1;
+      }
+    } else { // type == 'down'
+      if (currentVote == 'down') {
+        newVote = null;
+        downDelta = -1;
+      } else if (currentVote == 'up') {
+        newVote = 'down';
+        downDelta = 1;
+        upDelta = -1;
+      } else {
+        newVote = 'down';
+        downDelta = 1;
+      }
+    }
+
     setState(() {
-       if (type == 'up') {
-          _feedReports[index] = report.copyWith(upvoteCount: report.upvoteCount + 1);
-       } else {
-          _feedReports[index] = report.copyWith(downvoteCount: report.downvoteCount + 1);
-       }
+      _feedReports[index] = report.copyWith(
+        userVoteType: newVote,
+        clearUserVoteType: newVote == null,
+        upvoteCount: report.upvoteCount + upDelta,
+        downvoteCount: report.downvoteCount + downDelta,
+      );
     });
 
     try {
@@ -171,11 +212,12 @@ class _HomePageState extends ConsumerState<HomePage> {
         userId: int.parse(user.user_id),
         type: type,
       );
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('Error voting: $e\n$stack');
       // Revert optimistic update on error
       if (mounted) {
         setState(() {
-           _feedReports[index] = report;
+           _feedReports[index] = originalReport;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to vote: $e')),
@@ -185,96 +227,21 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _openCommentDialog(ReportModel report, int index) {
-      final user = ref.read(authProvider).user;
-      if (user == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please log in to comment')),
-        );
-        return;
-      }
-      
-      final TextEditingController commentController = TextEditingController();
-      bool isSubmitting = false;
-
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        builder: (context) {
-          return StatefulBuilder(
-            builder: (context, setModalState) {
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(context).viewInsets.bottom,
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Add Comment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: commentController,
-                      decoration: const InputDecoration(
-                        hintText: 'Write a comment...',
-                        border: OutlineInputBorder(),
-                      ),
-                      maxLines: 3,
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: isSubmitting ? null : () async {
-                          if (commentController.text.trim().isEmpty) return;
-                          
-                          setModalState(() {
-                            isSubmitting = true;
-                          });
-
-                          try {
-                            await _remoteDataSource.addComment(
-                              reportId: report.reportId,
-                              userId: int.parse(user.user_id),
-                              content: commentController.text.trim(),
-                            );
-                            
-                            if (mounted) {
-                              setState(() {
-                                _feedReports[index] = report.copyWith(
-                                  commentCount: report.commentCount + 1,
-                                );
-                              });
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Comment added')),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              setModalState(() {
-                                isSubmitting = false;
-                              });
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Failed to comment: $e')),
-                              );
-                            }
-                          }
-                        },
-                        child: isSubmitting 
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
-                            : const Text('Post Comment'),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              );
-            },
-          );
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => CommentsBottomSheet(
+        reportId: report.reportId,
+        onCommentAdded: () {
+          setState(() {
+            _feedReports[index] = _feedReports[index].copyWith(
+              commentCount: _feedReports[index].commentCount + 1,
+            );
+          });
         },
-      );
+      ),
+    );
   }
 
   @override

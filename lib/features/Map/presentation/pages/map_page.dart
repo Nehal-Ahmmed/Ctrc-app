@@ -1,403 +1,924 @@
+import 'dart:async';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
-import 'package:ctrc/features/Report/domain/models/report_model.dart';
+import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
 
-class MapPage extends StatefulWidget {
+import '../../../Auth/presentation/providers/auth_provider.dart';
+import '../../../Report/data/datasources/report_remote_datasource.dart';
+import '../../../Report/domain/models/report_model.dart';
+import '../../data/datasources/geo_request_cache.dart';
+import '../../data/datasources/geocoding_datasource.dart';
+import '../../data/datasources/routing_datasource.dart';
+import '../../domain/models/map_scope.dart';
+import '../../domain/models/place_suggestion.dart';
+import '../../domain/models/route_models.dart';
+import '../../domain/services/incident_severity.dart';
+import '../../domain/services/route_hazard_analyzer.dart';
+import '../../domain/utils/geo_utils.dart';
+import '../providers/map_controls_provider.dart';
+import '../widgets/alert_list_sheet.dart';
+import '../widgets/live_location_pointer.dart';
+import '../widgets/place_autocomplete_field.dart';
+import '../widgets/route_planner_sheet.dart';
+import '../widgets/route_summary_card.dart';
+import '../widgets/scope_filter_bar.dart';
+
+/// What the camera is currently glued to.
+enum _CameraMode {
+  /// Following the live GPS pointer (the default).
+  followMe,
+
+  /// Locked onto a place picked from the search bar.
+  pinnedToPlace,
+
+  /// The user panned away; nothing is auto-centred until they hit recenter.
+  free,
+}
+
+class MapPage extends ConsumerStatefulWidget {
   const MapPage({super.key});
 
   @override
-  State<MapPage> createState() => _MapPageState();
+  ConsumerState<MapPage> createState() => _MapPageState();
 }
 
-class _MapPageState extends State<MapPage> {
-  LatLng? _currentLocation;
-  List<ReportModel> _nearbyReports = [];
-  bool _isLoading = false;
-  final ReportRemoteDataSource _remoteDataSource = ReportRemoteDataSourceImpl();
-
+class _MapPageState extends ConsumerState<MapPage> {
   final MapController _mapController = MapController();
+  final ReportRemoteDataSource _reports = ReportRemoteDataSourceImpl();
+  final GeocodingDataSource _geocoder = GeocodingDataSource();
+  final RoutingDataSource _router = RoutingDataSource();
 
-  final TextEditingController _startController = TextEditingController();
-  final TextEditingController _destController = TextEditingController();
-  List<LatLng> _routePoints = [];
+  /// Id of the signed-in user, so the backend can return saved / vote state
+  /// alongside each report. Null while browsing anonymously.
+  int? get _viewerUserId {
+    final user = ref.read(authProvider).user;
+    if (user == null) return null;
+    return int.tryParse(user.user_id);
+  }
+
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+
+  // ---- live location -------------------------------------------------------
+  StreamSubscription<Position>? _positionSub;
+  LatLng? _currentLocation;
+  double? _accuracyMeters;
+
+  /// Unwrapped heading so the pointer animates the short way round 0°/360°.
+  double? _smoothHeading;
+  double _lastRawHeading = 0;
+  bool _locationDenied = false;
+
+  // ---- camera / anchor -----------------------------------------------------
+  _CameraMode _cameraMode = _CameraMode.followMe;
+  PlaceSuggestion? _pinnedPlace;
+  bool _mapReady = false;
+
+  // ---- area scope ----------------------------------------------------------
+  ResolvedArea? _area;
+  bool _isResolvingArea = false;
+  bool _isLoadingAlerts = false;
+  List<ReportModel> _areaReports = const [];
+  int _areaRequestId = 0;
+
+  // ---- routing -------------------------------------------------------------
+  RouteAnalysis? _routeAnalysis;
+  RouteRequest? _lastRouteRequest;
   bool _isRouting = false;
-  String _transportMode = 'driving'; // driving or train (mocked)
 
   @override
   void initState() {
     super.initState();
-    _determinePosition();
-  }
+    _startLocationTracking();
 
-  Future<void> _determinePosition() async {
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return;
-    }
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return;
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      return;
-    }
-
-    Position position = await Geolocator.getCurrentPosition();
-    setState(() {
-      _currentLocation = LatLng(position.latitude, position.longitude);
+    // The drawer may have dispatched a command before this branch was first
+    // built, in which case ref.listen would never see the transition.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final pending = ref.read(mapCommandProvider);
+      if (pending != null) _handleCommand(pending);
     });
-    
-    // Automatically center map and fetch reports for current location
-    _mapController.move(_currentLocation!, 13.0);
-    _fetchNearbyReports(_currentLocation!);
-  }
-
-  Future<void> _fetchNearbyReports(LatLng location) async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final reports = await _remoteDataSource.getNearbyReports(
-        lat: location.latitude,
-        lng: location.longitude,
-        radius: 5.0, // 5km radius
-      );
-
-      setState(() {
-        _nearbyReports = reports;
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Found ${reports.length} nearby reports within 5km.')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error fetching reports: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _calculateRoute() async {
-    final startStr = _startController.text.trim();
-    final destStr = _destController.text.trim();
-
-    if (startStr.isEmpty || destStr.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter both starting point and destination')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      // 1. Geocode Start (using simple Nominatim API)
-      final startCoords = await _geocode(startStr);
-      if (startCoords == null) throw Exception('Could not find starting point');
-
-      // 2. Geocode Dest
-      final destCoords = await _geocode(destStr);
-      if (destCoords == null) throw Exception('Could not find destination');
-
-      // 3. Fetch Route from OSRM
-      final dio = Dio();
-      final url = 'http://router.project-osrm.org/route/v1/$_transportMode/${startCoords.longitude},${startCoords.latitude};${destCoords.longitude},${destCoords.latitude}?geometries=geojson';
-      
-      final response = await dio.get(url);
-      if (response.statusCode == 200 && response.data['routes'] != null && response.data['routes'].isNotEmpty) {
-        final geometry = response.data['routes'][0]['geometry'];
-        final List coordinates = geometry['coordinates'];
-        
-        setState(() {
-          _routePoints = coordinates.map((coord) => LatLng(coord[1], coord[0])).toList();
-          _isRouting = true;
-        });
-
-        // Fit bounds
-        final bounds = LatLngBounds.fromPoints(_routePoints);
-        _mapController.fitCamera(CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(50)));
-      } else {
-        throw Exception('No route found');
-      }
-
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  Future<LatLng?> _geocode(String query) async {
-    try {
-      final dio = Dio();
-      final response = await dio.get(
-        'https://nominatim.openstreetmap.org/search',
-        queryParameters: {
-          'q': query,
-          'format': 'json',
-          'limit': 1,
-        },
-        options: Options(headers: {'User-Agent': 'com.ctrc.app'}),
-      );
-
-      if (response.statusCode == 200 && response.data != null && response.data.isNotEmpty) {
-        final lat = double.parse(response.data[0]['lat']);
-        final lon = double.parse(response.data[0]['lon']);
-        return LatLng(lat, lon);
-      }
-    } catch (_) {}
-    return null;
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Incidents Map'),
-      ),
-      body: Stack(
-        children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              // Initial center on Dhaka
-              initialCenter: const LatLng(23.8103, 90.4125),
-              initialZoom: 13.0,
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.ctrc.app', // Adjusted based on standard convention
-              ),
-              if (_currentLocation != null)
-                CircleLayer(
-                  circles: [
-                    CircleMarker(
-                      point: _currentLocation!,
-                      radius: 5000,
-                      useRadiusInMeter: true,
-                      color: Colors.blue.withOpacity(0.15),
-                      borderColor: Colors.blue.withOpacity(0.5),
-                      borderStrokeWidth: 2,
-                    ),
-                  ],
-                ),
-              MarkerLayer(
-                markers: [
-                  // Current user location marker (Google Maps style blue dot)
-                  if (_currentLocation != null)
-                    Marker(
-                      point: _currentLocation!,
-                      width: 40,
-                      height: 40,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.blue,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.blue.withOpacity(0.4),
-                              blurRadius: 10,
-                              spreadRadius: 5,
-                            )
-                          ]
-                        ),
-                      ),
-                    ),
-                  // Nearby reports markers
-                  ..._nearbyReports.map((report) {
-                    final lat = report.location?.latitude;
-                    final lng = report.location?.longitude;
-                    if (lat == null || lng == null) return null;
+  void dispose() {
+    _positionSub?.cancel();
+    _searchController.dispose();
+    _searchFocus.dispose();
+    super.dispose();
+  }
 
-                    return Marker(
-                      point: LatLng(lat, lng),
-                      width: 50,
-                      height: 50,
-                      child: GestureDetector(
-                        onTap: () {
-                          showDialog(
-                            context: context,
-                            builder: (_) => AlertDialog(
-                              title: Text(report.title),
-                              content: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Category: ${report.category}'),
-                                  const SizedBox(height: 8),
-                                  Text(report.description ?? 'No description provided.'),
-                                ],
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text('Close'),
-                                )
-                              ],
-                            ),
-                          );
-                        },
-                        child: const Icon(
-                          Icons.warning_rounded,
-                          color: Colors.red,
-                          size: 40,
-                        ),
-                      ),
-                    );
-                  }).whereType<Marker>(),
-                ],
+  // ===========================================================================
+  // Location
+  // ===========================================================================
+
+  Future<void> _startLocationTracking() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      if (mounted) setState(() => _locationDenied = true);
+      return;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      if (mounted) setState(() => _locationDenied = true);
+      return;
+    }
+
+    if (mounted) setState(() => _locationDenied = false);
+
+    try {
+      final initial = await Geolocator.getCurrentPosition();
+      _onPosition(initial, recenter: true);
+    } catch (_) {
+      // No fix yet; the stream below will deliver one when it arrives.
+    }
+
+    _positionSub?.cancel();
+    _positionSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 3,
+      ),
+    ).listen(
+      (position) => _onPosition(position),
+      onError: (_) {},
+    );
+  }
+
+  void _onPosition(Position position, {bool recenter = false}) {
+    if (!mounted) return;
+
+    final point = LatLng(position.latitude, position.longitude);
+    final isFirstFix = _currentLocation == null;
+
+    setState(() {
+      _currentLocation = point;
+      _accuracyMeters = position.accuracy;
+      _updateHeading(position.heading);
+    });
+
+    if (recenter || isFirstFix) {
+      _cameraMode = _CameraMode.followMe;
+      _moveCamera(point, zoom: 15.5);
+      _refreshArea(force: true);
+      return;
+    }
+
+    if (_cameraMode == _CameraMode.followMe) {
+      _moveCamera(point);
+      // Re-query only once the pointer has drifted meaningfully inside the
+      // current scope, so a slow walk does not hammer the backend.
+      final area = _area;
+      if (area == null ||
+          GeoUtils.metersBetween(area.center, point) >
+              (area.radiusMeters * 0.25).clamp(150, 4000)) {
+        _refreshArea();
+      }
+    }
+  }
+
+  /// Keeps [_smoothHeading] continuous across the 359° → 1° wrap so the cone
+  /// rotates the short way instead of spinning all the way round.
+  void _updateHeading(double rawHeading) {
+    if (rawHeading.isNaN || rawHeading < 0) return;
+
+    final previous = _smoothHeading;
+    if (previous == null) {
+      _smoothHeading = rawHeading;
+      _lastRawHeading = rawHeading;
+      return;
+    }
+
+    var delta = rawHeading - _lastRawHeading;
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+
+    _smoothHeading = previous + delta;
+    _lastRawHeading = rawHeading;
+  }
+
+  // ===========================================================================
+  // Camera
+  // ===========================================================================
+
+  void _moveCamera(LatLng target, {double? zoom}) {
+    if (!_mapReady) return;
+    _mapController.move(target, zoom ?? _mapController.camera.zoom);
+  }
+
+  /// Where alerts and the blue circle are anchored: the pinned place if there
+  /// is one, otherwise the live pointer.
+  LatLng? get _anchor => _pinnedPlace?.point ?? _currentLocation;
+
+  void _recenterOnMe() {
+    final here = _currentLocation;
+    if (here == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_locationDenied
+              ? 'Location permission is off — enable it in settings'
+              : 'Still waiting for a GPS fix...'),
+        ),
+      );
+      _startLocationTracking();
+      return;
+    }
+
+    setState(() {
+      _pinnedPlace = null;
+      _searchController.clear();
+      _cameraMode = _CameraMode.followMe;
+    });
+    _moveCamera(here, zoom: 15.5);
+    _refreshArea(force: true);
+  }
+
+  void _onPlaceSelected(PlaceSuggestion place) {
+    setState(() {
+      _pinnedPlace = place;
+      _cameraMode = _CameraMode.pinnedToPlace;
+    });
+    _moveCamera(place.point, zoom: 14);
+    _refreshArea(force: true);
+  }
+
+  void _onSearchCleared() {
+    setState(() => _pinnedPlace = null);
+    final here = _currentLocation;
+    if (here != null) {
+      setState(() => _cameraMode = _CameraMode.followMe);
+      _moveCamera(here, zoom: 15.5);
+    }
+    _refreshArea(force: true);
+  }
+
+  void _onCameraChanged(MapCamera camera, bool hasGesture) {
+    if (!hasGesture || _cameraMode == _CameraMode.free) return;
+
+    final anchor = _anchor;
+    if (anchor == null) return;
+
+    // Pinching to zoom keeps the anchor centred, so only a real pan unlocks.
+    if (GeoUtils.metersBetween(camera.center, anchor) > 60) {
+      setState(() => _cameraMode = _CameraMode.free);
+    }
+  }
+
+  // ===========================================================================
+  // Area scope + alerts
+  // ===========================================================================
+
+  Future<void> _onScopeSelected(MapScope scope) async {
+    ref.read(mapScopeProvider.notifier).state = scope;
+    await _refreshArea(force: true, frameCamera: true);
+  }
+
+  Future<void> _refreshArea({
+    bool force = false,
+    bool frameCamera = false,
+  }) async {
+    final anchor = _anchor;
+    if (anchor == null) return;
+
+    final scope = ref.read(mapScopeProvider);
+    final requestId = ++_areaRequestId;
+
+    if (scope.isAdministrative) {
+      setState(() => _isResolvingArea = true);
+    }
+
+    final area = scope.isAdministrative
+        ? await _geocoder.resolveArea(at: anchor, scope: scope)
+        : ResolvedArea(
+            scope: scope,
+            center: anchor,
+            radiusMeters: scope.fixedRadiusMeters!,
+          );
+
+    if (!mounted || requestId != _areaRequestId) return;
+
+    setState(() {
+      _area = area;
+      _isResolvingArea = false;
+    });
+
+    if (frameCamera) {
+      _moveCamera(
+        area.center,
+        zoom: GeoUtils.zoomForRadius(
+          area.radiusMeters,
+          area.center.latitude,
+          viewportPixels: MediaQuery.of(context).size.width,
+        ),
+      );
+    }
+
+    await _loadAreaAlerts(area, requestId: requestId, force: force);
+  }
+
+  Future<void> _loadAreaAlerts(
+    ResolvedArea area, {
+    required int requestId,
+    bool force = false,
+  }) async {
+    setState(() => _isLoadingAlerts = true);
+
+    try {
+      final fetched = await _reports.getNearbyReports(
+        lat: area.center.latitude,
+        lng: area.center.longitude,
+        radius: area.radiusKm,
+        userId: _viewerUserId,
+      );
+
+      if (!mounted || requestId != _areaRequestId) return;
+
+      final visible = fetched.where((report) {
+        final location = report.location;
+        if (location == null) return false;
+        if (!IncidentSeverity.isActive(report)) return false;
+        return area.includes(LatLng(location.latitude, location.longitude));
+      }).toList();
+
+      setState(() {
+        _areaReports = visible;
+        _isLoadingAlerts = false;
+      });
+      ref.read(mapAreaAlertCountProvider.notifier).state = visible.length;
+    } catch (e) {
+      if (!mounted || requestId != _areaRequestId) return;
+      setState(() => _isLoadingAlerts = false);
+      if (force) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load alerts: $e')),
+        );
+      }
+    }
+  }
+
+  // ===========================================================================
+  // Routing
+  // ===========================================================================
+
+  Future<void> _openRoutePlanner() async {
+    final request = await RoutePlannerSheet.show(
+      context,
+      geocoder: _geocoder,
+      currentLocation: _currentLocation,
+      initial: _lastRouteRequest,
+    );
+    if (request == null || !mounted) return;
+    await _buildRoute(request);
+  }
+
+  Future<void> _buildRoute(RouteRequest request) async {
+    setState(() {
+      _isRouting = true;
+      _lastRouteRequest = request;
+    });
+
+    try {
+      final plans = await _router.route(from: request.from, to: request.to);
+      if (!mounted) return;
+
+      // Built per request so it always carries the current signed-in user.
+      final analyzer = RouteHazardAnalyzer(
+        reports: _reports,
+        viewerUserId: _viewerUserId,
+      );
+
+      final analysis = await analyzer.analyze(
+        plan: plans.first,
+        alternatives: plans.skip(1).toList(),
+        fromLabel: request.fromLabel,
+        toLabel: request.toLabel,
+      );
+      if (!mounted) return;
+
+      setState(() {
+        _routeAnalysis = analysis;
+        _isRouting = false;
+        _cameraMode = _CameraMode.free;
+      });
+      ref.read(mapRouteAlertCountProvider.notifier).state =
+          analysis.hazards.length;
+
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(analysis.plan.points),
+          padding: const EdgeInsets.fromLTRB(40, 160, 40, 260),
+        ),
+      );
+
+      if (analysis.hazards.isNotEmpty) _showRouteAlerts();
+    } on GeoServiceException catch (e) {
+      if (!mounted) return;
+      setState(() => _isRouting = false);
+      _showNotice(
+        e.message,
+        isTransient: e.isRateLimited,
+        onRetry: () => _buildRoute(request),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isRouting = false);
+      _showNotice('Could not build the route: $e');
+    }
+  }
+
+  /// One place for user-facing map notices, so a temporary rate limit reads as
+  /// "try again in a moment" instead of looking like a failure.
+  void _showNotice(
+    String message, {
+    bool isTransient = false,
+    VoidCallback? onRetry,
+  }) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                isTransient ? Icons.hourglass_bottom : Icons.error_outline,
+                color: Colors.white,
+                size: 20,
               ),
-              if (_isRouting && _routePoints.isNotEmpty)
-                PolylineLayer(
-                  polylines: [
-                    Polyline(
-                      points: _routePoints,
-                      color: Colors.blue,
-                      strokeWidth: 5.0,
-                    ),
-                  ],
-                ),
+              const SizedBox(width: 10),
+              Expanded(child: Text(message)),
             ],
           ),
-          if (_isLoading)
-            const Center(
-              child: CircularProgressIndicator(),
-            ),
-          
-          // Top Routing Panel (Google Maps Style)
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: Card(
-              elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: _startController,
-                      decoration: InputDecoration(
-                        hintText: 'Choose starting point',
-                        prefixIcon: const Icon(Icons.my_location, color: Colors.blue),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.gps_fixed),
-                          onPressed: () {
-                            if (_currentLocation != null) {
-                              _startController.text = '${_currentLocation!.latitude}, ${_currentLocation!.longitude}';
-                            } else {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Waiting for GPS...')));
-                            }
-                          },
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _destController,
-                      decoration: InputDecoration(
-                        hintText: 'Choose destination',
-                        prefixIcon: const Icon(Icons.location_on, color: Colors.red),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () {
-                              setState(() {
-                                _transportMode = 'driving';
-                              });
-                              _calculateRoute();
-                            },
-                            icon: const Icon(Icons.directions_car),
-                            label: const Text('Car'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _transportMode == 'driving' ? Colors.blue : Colors.grey[200],
-                              foregroundColor: _transportMode == 'driving' ? Colors.white : Colors.black,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () {
-                              setState(() {
-                                _transportMode = 'driving'; // OSRM train not universally supported, fallback to driving for mock
-                              });
-                              _calculateRoute();
-                            },
-                            icon: const Icon(Icons.train),
-                            label: const Text('Train'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _transportMode == 'train' ? Colors.blue : Colors.grey[200],
-                              foregroundColor: _transportMode == 'train' ? Colors.white : Colors.black,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+          backgroundColor:
+              isTransient ? const Color(0xFFB26A00) : const Color(0xFF323232),
+          duration: Duration(seconds: isTransient ? 6 : 4),
+          action: onRetry == null
+              ? null
+              : SnackBarAction(
+                  label: 'Retry',
+                  textColor: Colors.white,
+                  onPressed: onRetry,
                 ),
+        ),
+      );
+  }
+
+  void _clearRoute() {
+    setState(() => _routeAnalysis = null);
+    ref.read(mapRouteAlertCountProvider.notifier).state = null;
+  }
+
+  // ===========================================================================
+  // Alert sheets
+  // ===========================================================================
+
+  void _showAreaAlerts() {
+    final area = _area;
+    final anchor = _anchor;
+    if (anchor == null) return;
+
+    final MapScope scope = area?.scope ?? ref.read(mapScopeProvider);
+
+    final measured = _areaReports.map((report) {
+      final point =
+          LatLng(report.location!.latitude, report.location!.longitude);
+      return (
+        report: report,
+        distance: GeoUtils.metersBetween(anchor, point),
+      );
+    }).toList()
+      ..sort((a, b) => a.distance.compareTo(b.distance));
+
+    AlertListSheet.show(
+      context,
+      title: 'Alerts in this area',
+      subtitle: area?.description ?? scope.label,
+      entries: measured
+          .map((e) => AlertEntry(
+                report: e.report,
+                level: IncidentSeverity.of(e.report),
+                distanceLabel:
+                    '${GeoUtils.formatDistance(e.distance)} away',
+              ))
+          .toList(),
+      onOpenReport: _openReport,
+      emptyMessage:
+          'Nothing reported inside ${scope.label.toLowerCase()} right now.',
+    );
+  }
+
+  void _showRouteAlerts() {
+    final analysis = _routeAnalysis;
+    if (analysis == null) return;
+
+    AlertListSheet.show(
+      context,
+      title: 'Alerts along your route',
+      subtitle: '${analysis.fromLabel} → ${analysis.toLabel} · '
+          'within 2 km of the road',
+      entries: analysis.hazards
+          .map((hazard) => AlertEntry(
+                report: hazard.report,
+                level: hazard.level,
+                distanceLabel: hazard.offsetLabel,
+              ))
+          .toList(),
+      onOpenReport: _openReport,
+      emptyMessage: 'No incidents reported within 2 km of this road.',
+    );
+  }
+
+  void _openReport(ReportModel report) {
+    Navigator.of(context).pop(); // close the alert sheet first
+    context.push('/report/${report.reportId}', extra: {
+      'report': report,
+      'viewerLocation': _currentLocation,
+    });
+  }
+
+  // ===========================================================================
+  // Drawer commands
+  // ===========================================================================
+
+  int _lastHandledSeq = 0;
+
+  void _handleCommand(MapCommand command) {
+    if (command.seq <= _lastHandledSeq) return;
+    _lastHandledSeq = command.seq;
+
+    switch (command.action) {
+      case MapAction.recenter:
+        _recenterOnMe();
+      case MapAction.openSearch:
+        _searchFocus.requestFocus();
+      case MapAction.openRoutePlanner:
+        _openRoutePlanner();
+      case MapAction.openAreaAlerts:
+        _showAreaAlerts();
+      case MapAction.openRouteAlerts:
+        if (_routeAnalysis == null) {
+          _openRoutePlanner();
+        } else {
+          _showRouteAlerts();
+        }
+      case MapAction.clearRoute:
+        _clearRoute();
+    }
+    ref.read(mapCommandProvider.notifier).consume();
+  }
+
+  // ===========================================================================
+  // Build
+  // ===========================================================================
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<MapCommand?>(mapCommandProvider, (previous, next) {
+      if (next == null || next.seq <= _lastHandledSeq) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _handleCommand(next);
+      });
+    });
+
+    final scope = ref.watch(mapScopeProvider);
+    final analysis = _routeAnalysis;
+
+    return Scaffold(
+      body: Stack(
+        children: [
+          _buildMap(analysis),
+          if (_isRouting) _buildRoutingOverlay(),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _buildTopControls(scope),
+          ),
+          if (analysis == null)
+            Positioned(left: 12, bottom: 16, child: _buildAreaAlertPill()),
+        ],
+      ),
+      // Handing the route card to `bottomSheet` lets Scaffold lift the FABs
+      // above it automatically.
+      bottomSheet: analysis == null
+          ? null
+          : Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: RouteSummaryCard(
+                analysis: analysis,
+                onShowAlerts: _showRouteAlerts,
+                onClear: _clearRoute,
+                onEdit: _openRoutePlanner,
               ),
             ),
+      floatingActionButton: _buildFabColumn(),
+    );
+  }
+
+  Widget _buildMap(RouteAnalysis? analysis) {
+    final here = _currentLocation;
+    final area = _area;
+    final pinned = _pinnedPlace;
+
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: here ?? const LatLng(23.8103, 90.4125),
+        initialZoom: 13,
+        maxZoom: 18,
+        minZoom: 3,
+        onMapReady: () {
+          _mapReady = true;
+          final anchor = _anchor;
+          if (anchor != null) _mapController.move(anchor, 15.5);
+          _refreshArea(force: true);
+        },
+        onPositionChanged: _onCameraChanged,
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.ctrc.app',
+        ),
+
+        // The scope circle: this is the area alerts are pulled from.
+        if (area != null && analysis == null)
+          CircleLayer(
+            circles: [
+              CircleMarker(
+                point: area.center,
+                radius: area.radiusMeters,
+                useRadiusInMeter: true,
+                color: const Color(0xFF1A73E8).withValues(alpha: 0.10),
+                borderColor: const Color(0xFF1A73E8).withValues(alpha: 0.45),
+                borderStrokeWidth: 2,
+              ),
+            ],
+          ),
+
+        // GPS accuracy halo.
+        if (here != null && _accuracyMeters != null && _accuracyMeters! > 0)
+          CircleLayer(
+            circles: [
+              CircleMarker(
+                point: here,
+                radius: _accuracyMeters!.clamp(10, 200),
+                useRadiusInMeter: true,
+                color: const Color(0xFF1A73E8).withValues(alpha: 0.12),
+                borderStrokeWidth: 0,
+                borderColor: Colors.transparent,
+              ),
+            ],
+          ),
+
+        if (analysis != null) ..._buildRouteLayers(analysis),
+
+        MarkerLayer(
+          markers: [
+            ..._buildIncidentMarkers(analysis),
+            if (pinned != null)
+              Marker(
+                point: pinned.point,
+                width: 48,
+                height: 48,
+                alignment: Alignment.topCenter,
+                child: const SearchedPlaceMarker(),
+              ),
+            if (here != null)
+              Marker(
+                point: here,
+                width: 72,
+                height: 72,
+                child: LiveLocationPointer(
+                  headingDegrees: _smoothHeading,
+                  isStale: _cameraMode == _CameraMode.pinnedToPlace,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildRouteLayers(RouteAnalysis analysis) {
+    return [
+      // Discarded alternatives, drawn faintly underneath.
+      if (analysis.alternatives.isNotEmpty)
+        PolylineLayer(
+          polylines: analysis.alternatives
+              .map((plan) => Polyline(
+                    points: plan.points,
+                    color: Colors.grey.withValues(alpha: 0.55),
+                    strokeWidth: 5,
+                    borderColor: Colors.white.withValues(alpha: 0.6),
+                    borderStrokeWidth: 1,
+                  ))
+              .toList(),
+        ),
+      // The chosen route, one polyline per congestion-coloured chunk.
+      PolylineLayer(
+        polylines: analysis.segments
+            .map((segment) => Polyline(
+                  points: segment.points,
+                  color: segment.level.color,
+                  strokeWidth: 7,
+                  borderColor: Colors.white,
+                  borderStrokeWidth: 1.5,
+                ))
+            .toList(),
+      ),
+    ];
+  }
+
+  List<Marker> _buildIncidentMarkers(RouteAnalysis? analysis) {
+    // While routing, the corridor hazards replace the radius alerts so the
+    // map does not show two competing incident sets.
+    final entries = analysis != null
+        ? analysis.hazards
+            .map((h) => (report: h.report, level: h.level))
+            .toList()
+        : _areaReports
+            .map((r) => (report: r, level: IncidentSeverity.of(r)))
+            .toList();
+
+    return entries
+        .where((e) => e.report.location != null)
+        .map((entry) {
+      final location = entry.report.location!;
+      return Marker(
+        point: LatLng(location.latitude, location.longitude),
+        width: 40,
+        height: 40,
+        child: GestureDetector(
+          onTap: () => context.push(
+            '/report/${entry.report.reportId}',
+            extra: {
+              'report': entry.report,
+              'viewerLocation': _currentLocation,
+            },
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: entry.level.color, width: 2.5),
+              boxShadow: const [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 4,
+                  offset: Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Icon(entry.level.icon, color: entry.level.color, size: 20),
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  Widget _buildTopControls(MapScope scope) {
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        // Keep the column tight so the rest of the map stays touchable.
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            child: Material(
+              elevation: 5,
+              shadowColor: Colors.black38,
+              borderRadius: BorderRadius.circular(28),
+              color: Colors.white,
+              clipBehavior: Clip.antiAlias,
+              child: PlaceAutocompleteField(
+                controller: _searchController,
+                focusNode: _searchFocus,
+                geocoder: _geocoder,
+                hintText: 'Search a place or institution',
+                biasTowards: _currentLocation,
+                prefixIcon: const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: Icon(Icons.search, color: Color(0xFF1A73E8)),
+                ),
+                onSelected: _onPlaceSelected,
+                onCleared: _onSearchCleared,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          ScopeFilterBar(
+            selected: scope,
+            onSelected: _onScopeSelected,
+            isResolving: _isResolvingArea,
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          if (_currentLocation != null) {
-            _mapController.move(_currentLocation!, 15.0);
-          } else {
-            _determinePosition();
-          }
-        },
-        backgroundColor: Colors.white,
-        child: const Icon(Icons.my_location, color: Colors.blue),
+    );
+  }
+
+  Widget _buildAreaAlertPill() {
+    final count = _areaReports.length;
+    final worst = _areaReports.isEmpty
+        ? CongestionLevel.clear
+        : _areaReports
+            .map(IncidentSeverity.of)
+            .reduce((a, b) => a.rank >= b.rank ? a : b);
+
+    return Material(
+      elevation: 6,
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(24),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: _showAreaAlerts,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_isLoadingAlerts)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(worst.icon, size: 20, color: worst.color),
+              const SizedBox(width: 8),
+              Text(
+                _isLoadingAlerts
+                    ? 'Loading alerts...'
+                    : '$count alert${count == 1 ? '' : 's'} · '
+                        '${_area?.scope.chipLabel ?? ''}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _buildRoutingOverlay() {
+    return Positioned.fill(
+      child: ColoredBox(
+        color: Colors.black.withValues(alpha: 0.25),
+        child: const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 14),
+                  Text('Finding the road and checking incidents...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFabColumn() {
+    final isFollowing = _cameraMode == _CameraMode.followMe;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        FloatingActionButton(
+          heroTag: 'map-directions',
+          onPressed: _openRoutePlanner,
+          backgroundColor: const Color(0xFF1A73E8),
+          foregroundColor: Colors.white,
+          tooltip: 'Plan a route',
+          child: const Icon(Icons.directions),
+        ),
+        const SizedBox(height: 12),
+        FloatingActionButton(
+          heroTag: 'map-recenter',
+          onPressed: _recenterOnMe,
+          backgroundColor: Colors.white,
+          tooltip: 'Centre on my location',
+          child: Icon(
+            isFollowing ? Icons.my_location : Icons.location_searching,
+            color: isFollowing ? const Color(0xFF1A73E8) : Colors.grey[700],
+          ),
+        ),
+      ],
     );
   }
 }

@@ -27,4 +27,6 @@ abstract class AuthRepository {
     String? address,
     String? image_url,
   });
+
+  Future<Either<Failure, UserModel>> uploadAvatar(String filePath);
 }

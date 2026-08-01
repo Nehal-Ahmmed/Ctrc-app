@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../domain/models/comment_model.dart';
 import '../../domain/models/report_model.dart';
+import '../../domain/models/voter_model.dart';
 
 abstract class ReportRemoteDataSource {
   Future<List<ReportModel>> getNearbyReports({
@@ -8,6 +10,7 @@ abstract class ReportRemoteDataSource {
     required double lng,
     double radius = 5.0,
     String? category,
+    int? userId,
   });
     Future<void> createReport({
         required int userId,
@@ -32,6 +35,16 @@ abstract class ReportRemoteDataSource {
     Future<List<ReportModel>> getSavedReports(int userId);
     Future<void> saveReport(int reportId, int userId);
     Future<void> unsaveReport(int reportId, int userId);
+
+    /// Single report with its location, used by the report details page.
+    /// Pass [userId] so the server can resolve saved / vote state.
+    Future<ReportModel> getReportById(int reportId, {int? userId});
+
+    /// Comment thread for a report, oldest first.
+    Future<List<CommentModel>> getComments(int reportId);
+
+    /// Voters list for a report.
+    Future<List<VoterModel>> getVotes(int reportId);
 }
 
 class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
@@ -41,7 +54,7 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     Dio? dio,
     String baseUrl = 'https://ctrc-backend.onrender.com', 
   }) : dio = dio ??
-            Dio(
+            (Dio(
               BaseOptions(
                 baseUrl: baseUrl,
                 connectTimeout: const Duration(seconds: 10),
@@ -51,7 +64,12 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
                   'Accept': 'application/json',
                 },
               ),
-            );
+            )..interceptors.add(LogInterceptor(
+                request: true,
+                requestBody: true,
+                responseBody: true,
+                error: true,
+              )));
 
   @override
   Future<void> createReport({
@@ -100,14 +118,20 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     required double lng,
     double radius = 5.0,
     String? category,
+    int? userId,
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token');
       
       final options = token != null 
-          ? Options(headers: {'Authorization': 'Bearer $token'})
-          : Options();
+          ? Options(headers: {
+              'Authorization': 'Bearer $token',
+              if (userId != null) 'X-User-Id': userId.toString(),
+            })
+          : (userId != null 
+              ? Options(headers: {'X-User-Id': userId.toString()})
+              : Options());
 
       final Map<String, dynamic> queryParams = {
         'lat': lat,
@@ -277,6 +301,84 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     } on DioException catch (e) {
       final message = _extractErrorMessage(e.response?.data);
       throw Exception(message ?? e.message ?? 'Failed to add comment');
+    }
+  }
+
+  @override
+  Future<ReportModel> getReportById(int reportId, {int? userId}) async {
+    try {
+      final response = await dio.get(
+        '/api/reports/$reportId',
+        options: await _authOptions(userId: userId),
+      );
+
+      final data = response.data;
+      if (response.statusCode == 200 && data is Map && data['data'] != null) {
+        return ReportModel.fromJson(
+          Map<String, dynamic>.from(data['data'] as Map),
+        );
+      }
+      throw Exception('Failed to load report');
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Failed to load report');
+    }
+  }
+
+  @override
+  Future<List<CommentModel>> getComments(int reportId) async {
+    try {
+      final response = await dio.get(
+        '/api/reports/$reportId/comments',
+        options: await _authOptions(),
+      );
+
+      final data = response.data;
+      if (response.statusCode == 200 && data is Map && data['data'] is List) {
+        return (data['data'] as List)
+            .whereType<Map>()
+            .map((json) => CommentModel.fromJson(Map<String, dynamic>.from(json)))
+            .toList();
+      }
+      return const [];
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Failed to load comments');
+    }
+  }
+
+  /// Attaches the stored bearer token (and optionally the user id header).
+  Future<Options> _authOptions({int? userId}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+
+    final headers = <String, dynamic>{
+      if (token != null) 'Authorization': 'Bearer $token',
+      if (userId != null) 'X-User-Id': userId.toString(),
+    };
+
+    return headers.isEmpty ? Options() : Options(headers: headers);
+  }
+
+  @override
+  Future<List<VoterModel>> getVotes(int reportId) async {
+    try {
+      final response = await dio.get(
+        '/api/reports/$reportId/votes',
+        options: await _authOptions(),
+      );
+
+      final data = response.data;
+      if (response.statusCode == 200 && data is Map && data['data'] is List) {
+        return (data['data'] as List)
+            .whereType<Map>()
+            .map((json) => VoterModel.fromJson(Map<String, dynamic>.from(json)))
+            .toList();
+      }
+      return const [];
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Failed to load voters');
     }
   }
 

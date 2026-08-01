@@ -207,6 +207,27 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
+  Future<String?> uploadAvatar(String filePath) async {
+    state = state.copyWith(isSubmitting: true, error: null);
+
+    final result = await _authRepository.uploadAvatar(filePath);
+
+    return result.fold(
+      (failure) {
+        state = state.copyWith(isSubmitting: false, error: failure.message);
+        return failure.message;
+      },
+      (user) {
+        state = state.copyWith(
+          user: user,
+          isSubmitting: false,
+          error: null,
+        );
+        return null;
+      },
+    );
+  }
+
   void clearError() {
     state = state.copyWith(error: null);
   }

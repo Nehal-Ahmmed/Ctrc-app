@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
+import 'package:ctrc/features/Report/presentation/widgets/voters_bottom_sheet.dart';
 
 class ReportCardWidget extends StatelessWidget {
   final ReportModel report;
@@ -54,23 +55,23 @@ class ReportCardWidget extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        report.title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      Text(
-                        'Category: ${report.category}',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
+                     crossAxisAlignment: CrossAxisAlignment.start,
+                     children: [
+                       Text(
+                         report.title,
+                         style: const TextStyle(
+                           fontWeight: FontWeight.bold,
+                           fontSize: 16,
+                         ),
+                       ),
+                       Text(
+                         'Category: ${report.category}',
+                         style: TextStyle(
+                           color: Colors.grey[600],
+                           fontSize: 13,
+                         ),
+                       ),
+                     ],
                   ),
                 ),
                 if (onSave != null)
@@ -96,36 +97,174 @@ class ReportCardWidget extends StatelessWidget {
             ],
             const SizedBox(height: 16),
             const Divider(height: 1),
+            const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_upward, size: 20),
-                      onPressed: onUpvote,
-                      color: Colors.grey[600],
+                    // Upvote Button
+                    Container(
+                      decoration: BoxDecoration(
+                        color: report.userVoteType == 'up' ? Colors.blue[50] : Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: report.userVoteType == 'up' ? Colors.blue : Colors.grey[300]!,
+                          width: 1,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            constraints: const BoxConstraints(),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            icon: Icon(
+                              Icons.arrow_upward,
+                              size: 18,
+                              color: report.userVoteType == 'up' ? Colors.blue : Colors.grey[600],
+                            ),
+                            onPressed: onUpvote,
+                          ),
+                          InkWell(
+                            onTap: () {
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) => VotersBottomSheet(reportId: report.reportId),
+                              );
+                            },
+                            borderRadius: const BorderRadius.only(
+                              topRight: Radius.circular(24),
+                              bottomRight: Radius.circular(24),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 12, top: 6, bottom: 6),
+                              child: Text(
+                                '${report.upvoteCount}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: report.userVoteType == 'up' ? Colors.blue : Colors.grey[700],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    Text('${report.upvoteCount}'),
                     const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.arrow_downward, size: 20),
-                      onPressed: onDownvote,
-                      color: Colors.grey[600],
+                    // Downvote Button
+                    Container(
+                      decoration: BoxDecoration(
+                        color: report.userVoteType == 'down' ? Colors.red[50] : Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: report.userVoteType == 'down' ? Colors.red : Colors.grey[300]!,
+                          width: 1,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            constraints: const BoxConstraints(),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            icon: Icon(
+                              Icons.arrow_downward,
+                              size: 18,
+                              color: report.userVoteType == 'down' ? Colors.red : Colors.grey[600],
+                            ),
+                            onPressed: onDownvote,
+                          ),
+                          InkWell(
+                            onTap: () {
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) => VotersBottomSheet(reportId: report.reportId),
+                              );
+                            },
+                            borderRadius: const BorderRadius.only(
+                              topRight: Radius.circular(24),
+                              bottomRight: Radius.circular(24),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.only(right: 12, top: 6, bottom: 6),
+                              child: Text(
+                                '${report.downvoteCount}',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: report.userVoteType == 'down' ? Colors.red : Colors.grey[700],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    Text('${report.downvoteCount}'),
                   ],
                 ),
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.comment_outlined, size: 20),
-                      onPressed: onComment,
-                      color: Colors.grey[600],
+                // Comment Button
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: Colors.grey[300]!,
+                      width: 1,
                     ),
-                    Text('${report.commentCount}'),
-                    const SizedBox(width: 8),
-                  ],
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: InkWell(
+                    onTap: onComment,
+                    borderRadius: BorderRadius.circular(24),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.comment_outlined,
+                            size: 18,
+                            color: Colors.grey[600],
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${report.commentCount}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                              color: Colors.grey[700],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),

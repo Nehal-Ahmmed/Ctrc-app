@@ -16,6 +16,12 @@ class ReportModel {
   final String? expiresAt;
   final String? createdAt;
   final bool isSaved;
+  final String? userVoteType;
+
+  /// Reporter's display name / avatar, joined server side so a report can be
+  /// rendered without a second lookup.
+  final String? authorName;
+  final String? authorImageUrl;
   final LocationModel? location;
 
   ReportModel({
@@ -31,6 +37,9 @@ class ReportModel {
     this.expiresAt,
     this.createdAt,
     this.isSaved = false,
+    this.userVoteType,
+    this.authorName,
+    this.authorImageUrl,
     this.location,
   });
 
@@ -47,6 +56,12 @@ class ReportModel {
     String? expiresAt,
     String? createdAt,
     bool? isSaved,
+    String? userVoteType,
+    // `userVoteType: null` cannot express "clear the vote" because null also
+    // means "leave unchanged", so un-voting sets this flag instead.
+    bool clearUserVoteType = false,
+    String? authorName,
+    String? authorImageUrl,
     LocationModel? location,
   }) {
     return ReportModel(
@@ -62,6 +77,10 @@ class ReportModel {
       expiresAt: expiresAt ?? this.expiresAt,
       createdAt: createdAt ?? this.createdAt,
       isSaved: isSaved ?? this.isSaved,
+      userVoteType:
+          clearUserVoteType ? null : (userVoteType ?? this.userVoteType),
+      authorName: authorName ?? this.authorName,
+      authorImageUrl: authorImageUrl ?? this.authorImageUrl,
       location: location ?? this.location,
     );
   }

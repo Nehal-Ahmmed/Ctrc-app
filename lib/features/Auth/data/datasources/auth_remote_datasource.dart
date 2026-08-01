@@ -27,6 +27,8 @@ abstract class AuthRemoteDataSource {
     String? address,
     String? image_url,
   });
+
+  Future<UserModel> uploadAvatar(String filePath);
 }
 
 class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
@@ -38,7 +40,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
         'https://ctrc-backend.onrender.com', // Use deployed Render backend
   }) : dio =
            dio ??
-           Dio(
+           (Dio(
              BaseOptions(
                baseUrl: baseUrl,
                connectTimeout: const Duration(seconds: 60),
@@ -48,7 +50,12 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
                  'Accept': 'application/json',
                },
              ),
-           );
+           )..interceptors.add(LogInterceptor(
+               request: true,
+               requestBody: true,
+               responseBody: true,
+               error: true,
+             )));
 
   @override
   Future<bool> checkHealth() async {
@@ -213,5 +220,37 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
       return responseData['message'] as String?;
     }
     return null;
+  }
+
+  @override
+  Future<UserModel> uploadAvatar(String filePath) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    
+    if (token == null) {
+      throw Exception('No token found');
+    }
+    
+    try {
+      final formData = FormData.fromMap({
+        'file': await MultipartFile.fromFile(filePath),
+      });
+
+      final response = await dio.post(
+        '/api/users/me/avatar',
+        data: formData,
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = response.data;
+        return UserModel.fromJson(data['data'] as Map<String, dynamic>);
+      } else {
+        throw Exception('Failed to upload profile picture');
+      }
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Upload profile picture error');
+    }
   }
 }

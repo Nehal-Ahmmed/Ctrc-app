@@ -94,4 +94,14 @@ class AuthRepositoryImpl implements AuthRepository {
       return Left(AuthFailure('Profile update failed: ${e.toString()}'));
     }
   }
+
+  @override
+  Future<Either<Failure, UserModel>> uploadAvatar(String filePath) async {
+    try {
+      final user = await remoteDataSource.uploadAvatar(filePath);
+      return Right(user);
+    } catch (e) {
+      return Left(AuthFailure('Avatar upload failed: ${e.toString()}'));
+    }
+  }
 }
