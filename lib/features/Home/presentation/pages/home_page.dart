@@ -2,8 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:ctrc/core/providers/settings_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
+import 'package:ctrc/features/Report/domain/models/report_category.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
+import 'package:ctrc/features/Report/domain/services/vote_toggle.dart';
 import 'package:ctrc/features/Report/presentation/widgets/create_report_bottom_sheet.dart';
 import 'package:ctrc/features/Report/presentation/widgets/report_card_widget.dart';
 import 'package:ctrc/features/Report/presentation/widgets/comments_bottom_sheet.dart';
@@ -25,17 +28,10 @@ class _HomePageState extends ConsumerState<HomePage> {
   String _selectedCategory = 'All';
   final ReportRemoteDataSource _remoteDataSource = ReportRemoteDataSourceImpl();
   StreamSubscription<Position>? _positionStreamSub;
-  
-  final List<String> _categories = [
-    'All',
-    'Road block',
-    'Robbery',
-    'Accident',
-    'Fire',
-    'Traffic jam',
-    'Riot',
-    'Other'
-  ];
+
+  /// Same list the create sheet offers, so a filter chip always matches what
+  /// was actually filed.
+  final List<String> _categories = ReportCategory.filterLabels;
 
   @override
   void initState() {
@@ -98,11 +94,12 @@ class _HomePageState extends ConsumerState<HomePage> {
       final reports = await _remoteDataSource.getNearbyReports(
         lat: _currentLocation!.latitude,
         lng: _currentLocation!.longitude,
-        radius: 5.0, // 5km
+        // Honours the "Report Radius" preference in Settings.
+        radius: ref.read(settingsProvider).reportRadius,
         category: _selectedCategory,
         userId: userId,
       );
-      
+
       if (mounted) {
         setState(() {
           _feedReports = reports;
@@ -132,7 +129,14 @@ class _HomePageState extends ConsumerState<HomePage> {
       return;
     }
 
-    final result = await showModalBottomSheet(
+    if (ref.read(authProvider).user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to report an incident')),
+      );
+      return;
+    }
+
+    final result = await showModalBottomSheet<CreateReportResult>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
@@ -141,13 +145,12 @@ class _HomePageState extends ConsumerState<HomePage> {
       builder: (_) => CreateReportBottomSheet(
         latitude: _currentLocation!.latitude,
         longitude: _currentLocation!.longitude,
-        parentReportId: null, // Initial report
       ),
     );
 
-    if (result == true) {
+    if (result != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Report submitted successfully!')),
+        SnackBar(content: Text(result.message)),
       );
       _fetchFeedData();
     }
@@ -161,49 +164,12 @@ class _HomePageState extends ConsumerState<HomePage> {
       );
       return;
     }
-    
+
     // Save original state
     final originalReport = _feedReports[index];
-    
-    // Determine new state based on current userVoteType
-    final currentVote = report.userVoteType;
-    String? newVote;
-    int upDelta = 0;
-    int downDelta = 0;
-
-    if (type == 'up') {
-      if (currentVote == 'up') {
-        newVote = null;
-        upDelta = -1;
-      } else if (currentVote == 'down') {
-        newVote = 'up';
-        upDelta = 1;
-        downDelta = -1;
-      } else {
-        newVote = 'up';
-        upDelta = 1;
-      }
-    } else { // type == 'down'
-      if (currentVote == 'down') {
-        newVote = null;
-        downDelta = -1;
-      } else if (currentVote == 'up') {
-        newVote = 'down';
-        downDelta = 1;
-        upDelta = -1;
-      } else {
-        newVote = 'down';
-        downDelta = 1;
-      }
-    }
 
     setState(() {
-      _feedReports[index] = report.copyWith(
-        userVoteType: newVote,
-        clearUserVoteType: newVote == null,
-        upvoteCount: report.upvoteCount + upDelta,
-        downvoteCount: report.downvoteCount + downDelta,
-      );
+      _feedReports[index] = VoteToggle.apply(report, type);
     });
 
     try {
@@ -267,8 +233,30 @@ class _HomePageState extends ConsumerState<HomePage> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_feedReports.isEmpty)
-              const SliverFillRemaining(
-                child: Center(child: Text('No incidents reported in your 5km radius.')),
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.check_circle_outline,
+                            size: 48, color: Colors.grey[400]),
+                        const SizedBox(height: 12),
+                        Text(
+                          _selectedCategory == ReportCategory.allLabel
+                              ? 'No incidents reported within '
+                                  '${ref.watch(settingsProvider).reportRadius.toInt()} km.'
+                              : 'No "$_selectedCategory" reports within '
+                                  '${ref.watch(settingsProvider).reportRadius.toInt()} km.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               )
             else
               SliverList(

@@ -1,74 +1,204 @@
 import 'package:flutter/material.dart';
-import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
 
-class CreateReportBottomSheet extends StatefulWidget {
+import '../../../../core/providers/settings_provider.dart';
+import '../../../Auth/presentation/providers/auth_provider.dart';
+import '../../../Map/data/datasources/geocoding_datasource.dart';
+import '../../../Map/domain/services/incident_severity.dart';
+import '../../../Map/domain/utils/geo_utils.dart';
+import '../../data/datasources/report_remote_datasource.dart';
+import '../../domain/models/report_category.dart';
+import 'link_incident_sheet.dart';
+
+class CreateReportBottomSheet extends ConsumerStatefulWidget {
   final double latitude;
   final double longitude;
+
+  /// Set when the reporter already chose an incident to attach to (for example
+  /// "Add an update" from the report details page). When null the sheet runs
+  /// the link-or-create check itself.
   final int? parentReportId;
+  final String? parentTitle;
+
+  /// Human label for where the pin is, shown so the reporter can tell whether
+  /// they are filing against their GPS position or a spot they picked.
+  final String? locationLabel;
 
   const CreateReportBottomSheet({
     super.key,
     required this.latitude,
     required this.longitude,
     this.parentReportId,
+    this.parentTitle,
+    this.locationLabel,
   });
 
   @override
-  State<CreateReportBottomSheet> createState() => _CreateReportBottomSheetState();
+  ConsumerState<CreateReportBottomSheet> createState() =>
+      _CreateReportBottomSheetState();
 }
 
-class _CreateReportBottomSheetState extends State<CreateReportBottomSheet> {
+class _CreateReportBottomSheetState
+    extends ConsumerState<CreateReportBottomSheet> {
   final _formKey = GlobalKey<FormState>();
-  String _title = '';
-  String _description = '';
-  String _category = 'Traffic'; // Default
-  bool _isLoading = false;
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
 
   final ReportRemoteDataSource _remoteDataSource = ReportRemoteDataSourceImpl();
+  final GeocodingDataSource _geocoder = GeocodingDataSource();
+
+  String _category = ReportCategory.trafficJam.label;
+  bool _isLoading = false;
+
+  /// Resolved once when the sheet opens so the report carries a street name
+  /// instead of bare coordinates.
+  String? _resolvedAddress;
+
+  /// Chosen in the link step; also set upfront when the caller passed a parent.
+  int? _linkedParentId;
+  String? _linkedParentTitle;
+
+  @override
+  void initState() {
+    super.initState();
+    _linkedParentId = widget.parentReportId;
+    _linkedParentTitle = widget.parentTitle;
+    _resolvedAddress = widget.locationLabel;
+    if (_resolvedAddress == null) _resolveAddress();
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _resolveAddress() async {
+    final label = await _geocoder
+        .describe(LatLng(widget.latitude, widget.longitude));
+    if (!mounted || label == null) return;
+    setState(() => _resolvedAddress = label);
+  }
+
+  bool get _isSubReport => _linkedParentId != null;
+
+  LatLng get _point => LatLng(widget.latitude, widget.longitude);
+
+  /// Open incidents close enough that this report is probably about the same
+  /// event. Returns an empty list when nothing is nearby or the lookup fails —
+  /// a flaky network must never block someone from filing a report.
+  Future<List<IncidentCandidate>> _findNearbyIncidents({
+    required int userId,
+    required double radiusKm,
+  }) async {
+    try {
+      final nearby = await _remoteDataSource.getNearbyReports(
+        lat: widget.latitude,
+        lng: widget.longitude,
+        radius: radiusKm,
+        userId: userId,
+      );
+
+      final candidates = <IncidentCandidate>[];
+      for (final report in nearby) {
+        final location = report.location;
+        if (location == null) continue;
+        if (!IncidentSeverity.isActive(report)) continue;
+        candidates.add((
+          report: report,
+          distanceMeters: GeoUtils.metersBetween(
+            _point,
+            LatLng(location.latitude, location.longitude),
+          ),
+        ));
+      }
+
+      candidates.sort((a, b) => a.distanceMeters.compareTo(b.distanceMeters));
+      return candidates.take(8).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
 
   Future<void> _submitReport() async {
     if (!_formKey.currentState!.validate()) return;
-    _formKey.currentState!.save();
 
-    setState(() {
-      _isLoading = true;
-    });
+    final user = ref.read(authProvider).user;
+    if (user == null) {
+      _notify('Please log in to report an incident');
+      return;
+    }
+    final userId = int.tryParse(user.user_id);
+    if (userId == null) {
+      _notify('Your session looks invalid — please log in again');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    var parentReportId = _linkedParentId;
+
+    // Link-or-create: only when the reporter has not already picked a parent.
+    if (parentReportId == null) {
+      final radiusKm = ref.read(settingsProvider).reportRadius;
+      final candidates = await _findNearbyIncidents(
+        userId: userId,
+        radiusKm: radiusKm,
+      );
+
+      if (!mounted) return;
+
+      if (candidates.isNotEmpty) {
+        final choice = await LinkIncidentSheet.show(
+          context,
+          candidates: candidates,
+          radiusLabel: 'within ${radiusKm.toInt()} km',
+        );
+
+        if (!mounted) return;
+        if (choice == null) {
+          // Backed out of the prompt — keep the form as they left it.
+          setState(() => _isLoading = false);
+          return;
+        }
+        parentReportId = choice.parent?.reportId;
+      }
+    }
 
     try {
-      // Temporarily grabbing userId. In a real scenario, use state management (e.g. Riverpod).
-      int userId = 1; 
-
       await _remoteDataSource.createReport(
         userId: userId,
         latitude: widget.latitude,
         longitude: widget.longitude,
-        title: widget.parentReportId != null ? 'Sub-report' : _title,
-        description: _description,
-        category: widget.parentReportId != null ? 'Sub-report' : _category,
-        parentReportId: widget.parentReportId,
+        title: parentReportId != null
+            ? 'Update'
+            : _titleController.text.trim(),
+        description: _descriptionController.text.trim(),
+        category: parentReportId != null ? 'Sub-report' : _category,
+        parentReportId: parentReportId,
+        address: _resolvedAddress,
       );
 
-      if (mounted) {
-        Navigator.pop(context, true); // True indicates success
-      }
+      if (!mounted) return;
+      Navigator.pop(context, parentReportId != null
+          ? CreateReportResult.linked
+          : CreateReportResult.created);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _notify('Could not submit the report: $e');
     }
+  }
+
+  void _notify(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final bool isSubReport = widget.parentReportId != null;
+    final isAuthenticated = ref.watch(authProvider).user != null;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -85,46 +215,176 @@ class _CreateReportBottomSheetState extends State<CreateReportBottomSheet> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                isSubReport ? 'Link to Incident' : 'Report New Incident',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                _isSubReport ? 'Add to this incident' : 'Report new incident',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
                 textAlign: TextAlign.center,
               ),
+              const SizedBox(height: 12),
+              _buildLocationRow(),
+              if (_isSubReport) ...[
+                const SizedBox(height: 12),
+                _buildLinkedBanner(),
+              ],
               const SizedBox(height: 16),
-              if (!isSubReport) ...[
+              if (!_isSubReport) ...[
                 TextFormField(
-                  decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder()),
-                  validator: (value) => value == null || value.isEmpty ? 'Required' : null,
-                  onSaved: (value) => _title = value ?? '',
+                  controller: _titleController,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    labelText: 'Title',
+                    hintText: 'e.g. Truck blocking the left lane',
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) => (value == null || value.trim().isEmpty)
+                      ? 'Required'
+                      : null,
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: _category,
-                  decoration: const InputDecoration(labelText: 'Category', border: OutlineInputBorder()),
-                  items: ['Traffic', 'Accident', 'Road Condition', 'Waterlogging', 'Other']
-                      .map((cat) => DropdownMenuItem(value: cat, child: Text(cat)))
+                  initialValue: _category,
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: ReportCategory.values
+                      .map(
+                        (category) => DropdownMenuItem(
+                          value: category.label,
+                          child: Row(
+                            children: [
+                              Icon(category.icon,
+                                  size: 18, color: category.color),
+                              const SizedBox(width: 10),
+                              Text(category.label),
+                            ],
+                          ),
+                        ),
+                      )
                       .toList(),
-                  onChanged: (value) => setState(() => _category = value!),
+                  onChanged: (value) {
+                    if (value != null) setState(() => _category = value);
+                  },
                 ),
                 const SizedBox(height: 16),
               ],
               TextFormField(
-                decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
+                controller: _descriptionController,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: InputDecoration(
+                  labelText: 'Description',
+                  hintText: _isSubReport
+                      ? 'What is happening there right now?'
+                      : 'Add anything that helps other drivers',
+                  border: const OutlineInputBorder(),
+                ),
                 maxLines: 3,
-                validator: (value) => value == null || value.isEmpty ? 'Required' : null,
-                onSaved: (value) => _description = value ?? '',
+                validator: (value) => (value == null || value.trim().isEmpty)
+                    ? 'Required'
+                    : null,
               ),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: _isLoading ? null : _submitReport,
-                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+                onPressed: (_isLoading || !isAuthenticated)
+                    ? null
+                    : _submitReport,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
                 child: _isLoading
-                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Submit Report', style: TextStyle(fontSize: 16)),
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        isAuthenticated
+                            ? 'Submit report'
+                            : 'Log in to report',
+                        style: const TextStyle(fontSize: 16),
+                      ),
               ),
+              if (!_isSubReport) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'If something similar is already reported nearby you will be '
+                  'asked whether to link to it.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 11.5, color: Colors.grey[600]),
+                ),
+              ],
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _buildLocationRow() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.blue.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.place_outlined, size: 18, color: Colors.blue),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _resolvedAddress ??
+                  '${widget.latitude.toStringAsFixed(5)}, '
+                      '${widget.longitude.toStringAsFixed(5)}',
+              style: const TextStyle(fontSize: 12.5),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLinkedBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.link, size: 18, color: Color(0xFFE8710A)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Linking to "${_linkedParentTitle ?? 'incident #$_linkedParentId'}"',
+              style: const TextStyle(fontSize: 12.5),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What the sheet handed back, so callers can word the confirmation correctly.
+enum CreateReportResult {
+  created,
+  linked;
+
+  String get message => switch (this) {
+        CreateReportResult.created => 'Incident reported. Thanks!',
+        CreateReportResult.linked => 'Added to the existing incident. Thanks!',
+      };
 }

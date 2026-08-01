@@ -20,6 +20,8 @@ abstract class ReportRemoteDataSource {
         required String description,
         required String category,
         int? parentReportId,
+        String? address,
+        String? city,
     });
     Future<void> voteReport({
         required int reportId,
@@ -80,12 +82,14 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     required String description,
     required String category,
     int? parentReportId,
+    String? address,
+    String? city,
   }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token');
-      
-      final options = token != null 
+
+      final options = token != null
           ? Options(headers: {'Authorization': 'Bearer $token'})
           : Options();
 
@@ -99,6 +103,8 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
           'description': description,
           'category': category,
           if (parentReportId != null) 'parentReportId': parentReportId,
+          if (address != null && address.isNotEmpty) 'address': address,
+          if (city != null && city.isNotEmpty) 'city': city,
         },
         options: options,
       );
