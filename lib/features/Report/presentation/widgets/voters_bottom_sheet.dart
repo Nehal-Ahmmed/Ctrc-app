@@ -176,7 +176,7 @@ class _VotersBottomSheetState extends State<VotersBottomSheet> with SingleTicker
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
+                            color: Colors.black.withValues(alpha: 0.1),
                             blurRadius: 2,
                           ),
                         ],

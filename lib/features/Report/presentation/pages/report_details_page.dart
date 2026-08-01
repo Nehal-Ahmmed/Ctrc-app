@@ -9,7 +9,9 @@ import '../../../Map/domain/services/incident_severity.dart';
 import '../../../Map/domain/utils/geo_utils.dart';
 import '../../data/datasources/report_remote_datasource.dart';
 import '../../domain/models/comment_model.dart';
+import '../../domain/models/report_category.dart';
 import '../../domain/models/report_model.dart';
+import '../widgets/create_report_bottom_sheet.dart';
 
 /// Full detail view for a single incident report.
 ///
@@ -39,6 +41,11 @@ class ReportDetailsPage extends ConsumerStatefulWidget {
 class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
   final ReportRemoteDataSource _dataSource = ReportRemoteDataSourceImpl();
   final TextEditingController _commentController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  final FocusNode _commentFocus = FocusNode();
+
+  /// Anchors the "jump to comments" action on the comment counter.
+  final GlobalKey _commentsKey = GlobalKey();
 
   ReportModel? _report;
   List<CommentModel> _comments = const [];
@@ -58,7 +65,70 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
   @override
   void dispose() {
     _commentController.dispose();
+    _scrollController.dispose();
+    _commentFocus.dispose();
     super.dispose();
+  }
+
+  /// Scrolls the comment thread into view and drops the caret in the composer,
+  /// which is what tapping the comment counter should have done all along.
+  void _jumpToComments() {
+    final target = _commentsKey.currentContext;
+    if (target != null) {
+      Scrollable.ensureVisible(
+        target,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+        alignment: 0.1,
+      );
+    } else if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+    _commentFocus.requestFocus();
+  }
+
+  /// Files a sub-report against this incident — the other half of the
+  /// link-or-create flow, reached from an incident you are already looking at.
+  Future<void> _addUpdate() async {
+    final report = _report;
+    if (report == null) return;
+    if (!_requireLogin('add an update')) return;
+
+    final location = report.location;
+    if (location == null) {
+      _notify('This report has no location to attach an update to.');
+      return;
+    }
+
+    final result = await showModalBottomSheet<CreateReportResult>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => CreateReportBottomSheet(
+        latitude: location.latitude,
+        longitude: location.longitude,
+        parentReportId: report.reportId,
+        parentTitle: report.title,
+        locationLabel: [location.address, location.city]
+            .whereType<String>()
+            .where((e) => e.isNotEmpty)
+            .join(', '),
+      ),
+    );
+
+    if (result == null || !mounted) return;
+    _notify(result.message);
+    await _load();
+  }
+
+  void _notify(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _load() async {
@@ -228,7 +298,27 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
-      appBar: const SubPageAppBar(title: 'Report details'),
+      appBar: SubPageAppBar(
+        title: 'Report details',
+        menuItems: [
+          SubPageMenuItem(
+            label: 'Add an update',
+            icon: Icons.add_comment_outlined,
+            onSelected: _addUpdate,
+          ),
+          SubPageMenuItem(
+            label: 'Refresh',
+            icon: Icons.refresh,
+            onSelected: _load,
+          ),
+          if (report != null)
+            SubPageMenuItem(
+              label: report.isSaved ? 'Remove from saved' : 'Save post',
+              icon: report.isSaved ? Icons.bookmark : Icons.bookmark_border,
+              onSelected: _toggleSave,
+            ),
+        ],
+      ),
       body: _isLoadingReport && report == null
           ? const Center(child: CircularProgressIndicator())
           : report == null
@@ -236,6 +326,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
               : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(
+                    controller: _scrollController,
                     padding: const EdgeInsets.only(bottom: 24),
                     children: [
                       _buildHeader(report),
@@ -273,6 +364,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
 
   Widget _buildHeader(ReportModel report) {
     final level = IncidentSeverity.of(report);
+    final category = ReportCategory.fromLabel(report.category);
     final createdAt = CommentModel.parseTimestamp(report.createdAt);
     final location = report.location;
 
@@ -294,7 +386,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
               CircleAvatar(
                 radius: 22,
                 backgroundColor: level.color.withValues(alpha: 0.15),
-                child: Icon(level.icon, color: level.color),
+                child: Icon(category.icon, color: level.color),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -311,7 +403,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
                     const SizedBox(height: 3),
                     Text(
                       [
-                        report.category,
+                        category.label,
                         if (createdAt != null) formatRelativeTime(createdAt),
                         if (distance != null)
                           '${GeoUtils.formatDistance(distance)} away',
@@ -466,13 +558,15 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
           ),
           const Spacer(),
           TextButton.icon(
-            onPressed: null,
+            onPressed: _jumpToComments,
             icon: const Icon(Icons.comment_outlined, size: 20),
             label: Text('${report.commentCount}'),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.grey[800],
-              disabledForegroundColor: Colors.grey[800],
-            ),
+            style: TextButton.styleFrom(foregroundColor: Colors.grey[800]),
+          ),
+          IconButton(
+            tooltip: 'Add an update to this incident',
+            onPressed: _addUpdate,
+            icon: Icon(Icons.add_comment_outlined, color: Colors.grey[700]),
           ),
           IconButton(
             tooltip: report.isSaved ? 'Remove from saved' : 'Save post',
@@ -489,6 +583,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
 
   Widget _buildComments() {
     return Container(
+      key: _commentsKey,
       color: Colors.white,
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
@@ -583,8 +678,10 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
             Expanded(
               child: TextField(
                 controller: _commentController,
+                focusNode: _commentFocus,
                 minLines: 1,
                 maxLines: 4,
+                textCapitalization: TextCapitalization.sentences,
                 textInputAction: TextInputAction.newline,
                 decoration: const InputDecoration(
                   hintText: 'Add a comment...',

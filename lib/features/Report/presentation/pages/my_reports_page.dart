@@ -1,9 +1,13 @@
+import 'package:ctrc/core/widgets/sub_page_app_bar.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
+import 'package:ctrc/features/Report/domain/services/vote_toggle.dart';
+import 'package:ctrc/features/Report/presentation/widgets/comments_bottom_sheet.dart';
 import 'package:ctrc/features/Report/presentation/widgets/report_card_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 class MyReportsPage extends ConsumerStatefulWidget {
   const MyReportsPage({super.key});
@@ -23,12 +27,21 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
     _fetchMyReports();
   }
 
-  Future<void> _fetchMyReports() async {
+  int? get _userId {
     final user = ref.read(authProvider).user;
-    if (user == null) return;
+    if (user == null) return null;
+    return int.tryParse(user.user_id);
+  }
+
+  Future<void> _fetchMyReports() async {
+    final userId = _userId;
+    if (userId == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
 
     try {
-      final reports = await _remoteDataSource.getMyReports(int.parse(user.user_id));
+      final reports = await _remoteDataSource.getMyReports(userId);
       if (mounted) {
         setState(() {
           _myReports = reports;
@@ -45,124 +58,150 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
     }
   }
 
-  void _handleVote(ReportModel report, String type, int index) async {
-    final user = ref.read(authProvider).user;
-    if (user == null) return;
+  Future<void> _handleVote(ReportModel report, String type, int index) async {
+    final userId = _userId;
+    if (userId == null) return;
 
-    setState(() {
-      if (type == 'up') {
-        _myReports[index] = report.copyWith(upvoteCount: report.upvoteCount + 1);
-      } else {
-        _myReports[index] = report.copyWith(downvoteCount: report.downvoteCount + 1);
-      }
-    });
+    setState(() => _myReports[index] = VoteToggle.apply(report, type));
 
     try {
-      if (type == 'up') {
-        await _remoteDataSource.voteReport(reportId: report.reportId, userId: int.parse(user.user_id), type: 'up');
-      } else {
-        await _remoteDataSource.voteReport(reportId: report.reportId, userId: int.parse(user.user_id), type: 'down');
-      }
+      await _remoteDataSource.voteReport(
+        reportId: report.reportId,
+        userId: userId,
+        type: type,
+      );
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _myReports[index] = report;
-        });
-      }
+      if (!mounted) return;
+      setState(() => _myReports[index] = report);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed to vote: $e')));
     }
   }
 
-  void _openCommentDialog(ReportModel report, int index) {
-    // simplified implementation reusing similar logic from home_page, 
-    // ideally should also be extracted into a shared service or widget
-    final user = ref.read(authProvider).user;
-    if (user == null) return;
+  Future<void> _handleSave(ReportModel report, int index) async {
+    final userId = _userId;
+    if (userId == null) return;
 
-    final TextEditingController commentController = TextEditingController();
-    bool isSubmitting = false;
+    final wasSaved = report.isSaved;
+    setState(() => _myReports[index] = report.copyWith(isSaved: !wasSaved));
 
+    try {
+      if (wasSaved) {
+        await _remoteDataSource.unsaveReport(report.reportId, userId);
+      } else {
+        await _remoteDataSource.saveReport(report.reportId, userId);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _myReports[index] = report);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed to update save: $e')));
+    }
+  }
+
+  void _openCommentSheet(ReportModel report, int index) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-                left: 16, right: 16, top: 16,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('Add Comment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: commentController,
-                    decoration: const InputDecoration(hintText: 'Write a comment...', border: OutlineInputBorder()),
-                    maxLines: 3,
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: isSubmitting ? null : () async {
-                        if (commentController.text.trim().isEmpty) return;
-                        setModalState(() => isSubmitting = true);
-                        try {
-                          await _remoteDataSource.addComment(reportId: report.reportId, userId: int.parse(user.user_id), content: commentController.text.trim());
-                          if (mounted) {
-                            setState(() {
-                              _myReports[index] = report.copyWith(commentCount: report.commentCount + 1);
-                            });
-                            Navigator.pop(context);
-                          }
-                        } catch (e) {
-                          if (mounted) setModalState(() => isSubmitting = false);
-                        }
-                      },
-                      child: isSubmitting 
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
-                          : const Text('Post Comment'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            );
-          },
-        );
-      },
+      backgroundColor: Colors.transparent,
+      builder: (context) => CommentsBottomSheet(
+        reportId: report.reportId,
+        onCommentAdded: () {
+          if (!mounted) return;
+          setState(() {
+            _myReports[index] = _myReports[index]
+                .copyWith(commentCount: _myReports[index].commentCount + 1);
+          });
+        },
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isAuthenticated = ref.watch(authProvider).user != null;
+
     return Scaffold(
       backgroundColor: Colors.grey[200],
-      appBar: AppBar(
-        title: const Text('My Reports'),
-        elevation: 1,
+      appBar: SubPageAppBar(
+        title: 'My Reports',
+        menuItems: [
+          SubPageMenuItem(
+            label: 'Refresh',
+            icon: Icons.refresh,
+            onSelected: _fetchMyReports,
+          ),
+        ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _myReports.isEmpty
-              ? const Center(child: Text('You haven\'t posted any reports yet.'))
+      body: !isAuthenticated
+          ? _buildSignedOut()
+          : _isLoading
+              ? const Center(child: CircularProgressIndicator())
               : RefreshIndicator(
                   onRefresh: _fetchMyReports,
-                  child: ListView.builder(
-                    itemCount: _myReports.length,
-                    itemBuilder: (context, index) {
-                      final report = _myReports[index];
-                      return ReportCardWidget(
-                        report: report,
-                        onUpvote: () => _handleVote(report, 'up', index),
-                        onDownvote: () => _handleVote(report, 'down', index),
-                        onComment: () => _openCommentDialog(report, index),
-                      );
-                    },
-                  ),
+                  child: _myReports.isEmpty
+                      ? _buildEmpty()
+                      : ListView.builder(
+                          itemCount: _myReports.length,
+                          itemBuilder: (context, index) {
+                            final report = _myReports[index];
+                            return ReportCardWidget(
+                              report: report,
+                              onUpvote: () => _handleVote(report, 'up', index),
+                              onDownvote: () =>
+                                  _handleVote(report, 'down', index),
+                              onComment: () => _openCommentSheet(report, index),
+                              onSave: () => _handleSave(report, index),
+                            );
+                          },
+                        ),
                 ),
+    );
+  }
+
+  Widget _buildSignedOut() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lock_outline, size: 48, color: Colors.grey[400]),
+            const SizedBox(height: 12),
+            Text(
+              'Log in to see the reports you have filed.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => context.push('/sign-in'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Log In'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmpty() {
+    // Kept scrollable so pull-to-refresh still works on an empty list.
+    return ListView(
+      children: [
+        SizedBox(height: MediaQuery.of(context).size.height * 0.25),
+        Icon(Icons.article_outlined, size: 48, color: Colors.grey[400]),
+        const SizedBox(height: 12),
+        Center(
+          child: Text(
+            "You haven't posted any reports yet.",
+            style: TextStyle(color: Colors.grey[600]),
+          ),
+        ),
+      ],
     );
   }
 }

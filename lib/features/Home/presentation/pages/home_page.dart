@@ -212,6 +212,14 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    // Changing the radius in Settings should reshape the feed straight away.
+    ref.listen<double>(
+      settingsProvider.select((s) => s.reportRadius),
+      (previous, next) {
+        if (previous != null && previous != next) _fetchFeedData();
+      },
+    );
+
     return Scaffold(
       backgroundColor: Colors.grey[200],
       appBar: AppBar(

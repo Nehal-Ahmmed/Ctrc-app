@@ -82,6 +82,7 @@ class MainScaffold extends ConsumerWidget {
       ),
       tile(MapAction.recenter),
       tile(MapAction.openSearch),
+      tile(MapAction.reportIncident),
       tile(MapAction.openRoutePlanner),
       tile(MapAction.openAreaAlerts, badge: '$areaAlerts'),
       tile(

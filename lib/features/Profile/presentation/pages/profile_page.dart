@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
+import 'package:ctrc/features/Report/domain/services/vote_toggle.dart';
 import 'package:ctrc/features/Report/presentation/widgets/report_card_widget.dart';
 import 'package:ctrc/features/Report/presentation/widgets/comments_bottom_sheet.dart';
 
@@ -128,45 +129,11 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   Future<void> _handleVote(ReportModel report, String type, int index) async {
     final user = ref.read(authProvider).user;
     if (user == null) return;
-    
-    final originalReport = _myReports[index];
-    final currentVote = report.userVoteType;
-    String? newVote;
-    int upDelta = 0;
-    int downDelta = 0;
 
-    if (type == 'up') {
-      if (currentVote == 'up') {
-        newVote = null;
-        upDelta = -1;
-      } else if (currentVote == 'down') {
-        newVote = 'up';
-        upDelta = 1;
-        downDelta = -1;
-      } else {
-        newVote = 'up';
-        upDelta = 1;
-      }
-    } else {
-      if (currentVote == 'down') {
-        newVote = null;
-        downDelta = -1;
-      } else if (currentVote == 'up') {
-        newVote = 'down';
-        downDelta = 1;
-        upDelta = -1;
-      } else {
-        newVote = 'down';
-        downDelta = 1;
-      }
-    }
+    final originalReport = _myReports[index];
 
     setState(() {
-      _myReports[index] = report.copyWith(
-        userVoteType: newVote,
-        upvoteCount: report.upvoteCount + upDelta,
-        downvoteCount: report.downvoteCount + downDelta,
-      );
+      _myReports[index] = VoteToggle.apply(report, type);
     });
 
     try {
@@ -311,7 +278,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                                       border: Border.all(color: Colors.white, width: 4),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withOpacity(0.1),
+                                          color: Colors.black.withValues(alpha: 0.1),
                                           blurRadius: 8,
                                           offset: const Offset(0, 4),
                                         ),
@@ -330,7 +297,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                                     Positioned.fill(
                                       child: Container(
                                         decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.4),
+                                          color: Colors.black.withValues(alpha: 0.4),
                                           shape: BoxShape.circle,
                                         ),
                                         child: const Center(

@@ -10,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 import '../../../Report/data/datasources/report_remote_datasource.dart';
 import '../../../Report/domain/models/report_model.dart';
+import '../../../Report/presentation/widgets/create_report_bottom_sheet.dart';
 import '../../data/datasources/geo_request_cache.dart';
 import '../../data/datasources/geocoding_datasource.dart';
 import '../../data/datasources/routing_datasource.dart';
@@ -545,6 +546,56 @@ class _MapPageState extends ConsumerState<MapPage> {
   }
 
   // ===========================================================================
+  // Reporting
+  // ===========================================================================
+
+  /// Where a long-press dropped a pin, so an incident can be filed somewhere
+  /// other than the reporter's own GPS position (the roadmap's "drop a pin to
+  /// select a location").
+  LatLng? _reportPin;
+
+  void _onMapLongPress(TapPosition tapPosition, LatLng point) {
+    setState(() => _reportPin = point);
+    _openReportSheet(point);
+  }
+
+  Future<void> _openReportSheet(LatLng? at) async {
+    final point = at ?? _reportPin ?? _currentLocation;
+    if (point == null) {
+      _showNotice(
+        'No location yet — long-press the map to pick the spot, or wait for a '
+        'GPS fix.',
+      );
+      return;
+    }
+
+    if (ref.read(authProvider).user == null) {
+      _showNotice('Please log in to report an incident');
+      return;
+    }
+
+    final result = await showModalBottomSheet<CreateReportResult>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => CreateReportBottomSheet(
+        latitude: point.latitude,
+        longitude: point.longitude,
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() => _reportPin = null);
+    if (result == null) return;
+
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(result.message)));
+    await _refreshArea(force: true);
+  }
+
+  // ===========================================================================
   // Drawer commands
   // ===========================================================================
 
@@ -559,6 +610,8 @@ class _MapPageState extends ConsumerState<MapPage> {
         _recenterOnMe();
       case MapAction.openSearch:
         _searchFocus.requestFocus();
+      case MapAction.reportIncident:
+        _openReportSheet(null);
       case MapAction.openRoutePlanner:
         _openRoutePlanner();
       case MapAction.openAreaAlerts:
@@ -642,6 +695,7 @@ class _MapPageState extends ConsumerState<MapPage> {
           _refreshArea(force: true);
         },
         onPositionChanged: _onCameraChanged,
+        onLongPress: _onMapLongPress,
       ),
       children: [
         TileLayer(
@@ -684,6 +738,18 @@ class _MapPageState extends ConsumerState<MapPage> {
         MarkerLayer(
           markers: [
             ..._buildIncidentMarkers(analysis),
+            if (_reportPin != null)
+              Marker(
+                point: _reportPin!,
+                width: 44,
+                height: 44,
+                alignment: Alignment.topCenter,
+                child: const Icon(
+                  Icons.add_location_alt,
+                  color: Color(0xFFD93025),
+                  size: 40,
+                ),
+              ),
             if (pinned != null)
               Marker(
                 point: pinned.point,
@@ -899,6 +965,15 @@ class _MapPageState extends ConsumerState<MapPage> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        FloatingActionButton(
+          heroTag: 'map-report',
+          onPressed: () => _openReportSheet(null),
+          backgroundColor: const Color(0xFFD93025),
+          foregroundColor: Colors.white,
+          tooltip: 'Report an incident (long-press the map to pick a spot)',
+          child: const Icon(Icons.add_alert),
+        ),
+        const SizedBox(height: 12),
         FloatingActionButton(
           heroTag: 'map-directions',
           onPressed: _openRoutePlanner,
