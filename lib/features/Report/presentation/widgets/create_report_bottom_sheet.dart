@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../../core/l10n/app_strings.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 import '../../../Map/data/datasources/geocoding_datasource.dart';
 import '../../../Map/domain/services/incident_severity.dart';
 import '../../../Map/domain/utils/geo_utils.dart';
 import '../../data/datasources/report_remote_datasource.dart';
 import '../../domain/models/report_category.dart';
+import '../../domain/models/report_model.dart';
 import 'link_incident_sheet.dart';
 
 /// How far out to look for an incident this report might belong to.
@@ -32,6 +35,11 @@ class CreateReportBottomSheet extends ConsumerStatefulWidget {
   /// they are filing against their GPS position or a spot they picked.
   final String? locationLabel;
 
+  /// Set to turn the sheet into an editor for a report the user already filed.
+  /// The fields start out filled in and submitting saves over the original
+  /// instead of creating a second report.
+  final ReportModel? editReport;
+
   const CreateReportBottomSheet({
     super.key,
     required this.latitude,
@@ -39,6 +47,7 @@ class CreateReportBottomSheet extends ConsumerStatefulWidget {
     this.parentReportId,
     this.parentTitle,
     this.locationLabel,
+    this.editReport,
   });
 
   @override
@@ -63,6 +72,11 @@ class _CreateReportBottomSheetState
 
   bool _isLoading = false;
 
+  /// Uploaded as soon as it is picked, so by the time the report is submitted
+  /// there is only a link to send. Null until the reporter attaches a photo.
+  String? _imageUrl;
+  bool _isUploadingImage = false;
+
   /// Resolved once when the sheet opens so the report carries a street name
   /// instead of bare coordinates.
   String? _resolvedAddress;
@@ -76,6 +90,19 @@ class _CreateReportBottomSheetState
     super.initState();
     _linkedParentId = widget.parentReportId;
     _linkedParentTitle = widget.parentTitle;
+
+    final editing = widget.editReport;
+    if (editing != null) {
+      _titleController.text = editing.title;
+      _descriptionController.text = editing.description ?? '';
+      _evidence = editing.evidenceType;
+      _imageUrl = editing.imageUrl;
+      // A report filed as Unknown keeps the category picker on its default,
+      // because Unknown is never something the reporter picks by hand.
+      if (editing.category != ReportCategory.unknown.label) {
+        _category = editing.category;
+      }
+    }
 
     final label = widget.locationLabel?.trim();
     _resolvedAddress = (label == null || label.isEmpty) ? null : label;
@@ -98,6 +125,8 @@ class _CreateReportBottomSheetState
 
   bool get _isSubReport => _linkedParentId != null;
 
+  bool get _isEditing => widget.editReport != null;
+
   /// Someone who is only guessing cannot say what the incident is, so the
   /// category is filed as Unknown and left for a witness to correct.
   bool get _isGuess => _evidence == 'guessed';
@@ -106,6 +135,21 @@ class _CreateReportBottomSheetState
       _isGuess ? ReportCategory.unknown.label : _category;
 
   LatLng get _point => LatLng(widget.latitude, widget.longitude);
+
+  /// Whether an incident already on the map could be the same event as the one
+  /// being filed. Distance alone is not enough: without this a fire four
+  /// kilometres away was offered as a match for a traffic jam, and accepting
+  /// it files the report as an update underneath somebody else's incident,
+  /// where it never shows up as a post of its own.
+  ///
+  /// Unknown matches anything in both directions — that is the whole point of
+  /// it, since a report filed as a guess is waiting to be identified.
+  bool _couldBeSameIncident(String otherCategory) {
+    final unknown = ReportCategory.unknown.label.toLowerCase();
+    final mine = _submittedCategory.toLowerCase();
+    final other = otherCategory.trim().toLowerCase();
+    return mine == unknown || other == unknown || mine == other;
+  }
 
   /// Open incidents close enough that this report is probably about the same
   /// event. Returns an empty list when nothing is nearby or the lookup fails —
@@ -127,6 +171,7 @@ class _CreateReportBottomSheetState
         final location = report.location;
         if (location == null) continue;
         if (!IncidentSeverity.isActive(report)) continue;
+        if (!_couldBeSameIncident(report.category)) continue;
         candidates.add((
           report: report,
           distanceMeters: GeoUtils.metersBetween(
@@ -141,6 +186,55 @@ class _CreateReportBottomSheetState
     } catch (_) {
       return const [];
     }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final picked = await ImagePicker().pickImage(
+      source: source,
+      maxWidth: 1280,
+      maxHeight: 1280,
+      imageQuality: 80,
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() => _isUploadingImage = true);
+    try {
+      final url = await _remoteDataSource.uploadReportImage(picked.path);
+      if (!mounted) return;
+      setState(() {
+        _imageUrl = url;
+        _isUploadingImage = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isUploadingImage = false);
+      AppToast.error(context, e, title: 'Could not upload the photo');
+    }
+  }
+
+  Future<void> _choosePhotoSource() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (source != null) await _pickImage(source);
   }
 
   Future<void> _submitReport() async {
@@ -158,6 +252,30 @@ class _CreateReportBottomSheetState
     }
 
     setState(() => _isLoading = true);
+
+    // Editing saves over the original. The link-or-create step is skipped
+    // entirely, because this report already belongs where it belongs.
+    if (_isEditing) {
+      try {
+        await _remoteDataSource.updateReport(
+          reportId: widget.editReport!.reportId,
+          userId: userId,
+          title: _titleController.text.trim(),
+          description: _descriptionController.text.trim(),
+          category: _submittedCategory,
+          evidenceType: _evidence,
+          imageUrl: _imageUrl,
+        );
+
+        if (!mounted) return;
+        Navigator.pop(context, CreateReportResult.edited);
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        AppToast.error(context, e, title: 'Could not save the changes');
+      }
+      return;
+    }
 
     var parentReportId = _linkedParentId;
 
@@ -198,6 +316,7 @@ class _CreateReportBottomSheetState
         description: _descriptionController.text.trim(),
         category: _submittedCategory,
         evidenceType: _evidence,
+        imageUrl: _imageUrl,
         parentReportId: parentReportId,
         address: _resolvedAddress,
       );
@@ -209,13 +328,11 @@ class _CreateReportBottomSheetState
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      _notify('Could not submit the report: $e');
+      AppToast.error(context, e, title: 'Could not submit the report');
     }
   }
 
-  void _notify(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-  }
+  void _notify(String message) => AppToast.info(context, message);
 
   @override
   Widget build(BuildContext context) {
@@ -237,9 +354,11 @@ class _CreateReportBottomSheetState
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                _isSubReport
-                    ? strings.addToThisIncident
-                    : strings.reportNewIncident,
+                _isEditing
+                    ? 'Edit your report'
+                    : _isSubReport
+                        ? strings.addToThisIncident
+                        : strings.reportNewIncident,
                 style: const TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
@@ -337,9 +456,11 @@ class _CreateReportBottomSheetState
                     ? strings.required
                     : null,
               ),
+              const SizedBox(height: 16),
+              _buildPhotoSection(),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: (_isLoading || !isAuthenticated)
+                onPressed: (_isLoading || _isUploadingImage || !isAuthenticated)
                     ? null
                     : _submitReport,
                 style: ElevatedButton.styleFrom(
@@ -357,13 +478,15 @@ class _CreateReportBottomSheetState
                         ),
                       )
                     : Text(
-                        isAuthenticated
-                            ? strings.submitReport
-                            : strings.logInToReport,
+                        !isAuthenticated
+                            ? strings.logInToReport
+                            : _isEditing
+                                ? 'Save changes'
+                                : strings.submitReport,
                         style: const TextStyle(fontSize: 16),
                       ),
               ),
-              if (!_isSubReport) ...[
+              if (!_isSubReport && !_isEditing) ...[
                 const SizedBox(height: 8),
                 Text(
                   'If something similar is already reported nearby you will be '
@@ -401,6 +524,78 @@ class _CreateReportBottomSheetState
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPhotoSection() {
+    if (_isUploadingImage) {
+      return Container(
+        height: 160,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.grey.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: 22,
+              width: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(height: 10),
+            Text('Uploading photo...', style: TextStyle(fontSize: 12.5)),
+          ],
+        ),
+      );
+    }
+
+    if (_imageUrl != null) {
+      return Stack(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.network(
+              _imageUrl!,
+              height: 180,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stack) => Container(
+                height: 180,
+                alignment: Alignment.center,
+                color: Colors.grey.withValues(alpha: 0.12),
+                child: const Text('Photo could not be shown'),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 6,
+            right: 6,
+            child: Material(
+              color: Colors.black54,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () => setState(() => _imageUrl = null),
+                child: const Padding(
+                  padding: EdgeInsets.all(6),
+                  child: Icon(Icons.close, size: 18, color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return OutlinedButton.icon(
+      onPressed: _choosePhotoSource,
+      icon: const Icon(Icons.add_a_photo_outlined, size: 20),
+      label: const Text('Add a photo (optional)'),
+      style: OutlinedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 14),
       ),
     );
   }
@@ -456,10 +651,12 @@ class _CreateReportBottomSheetState
 /// What the sheet handed back, so callers can word the confirmation correctly.
 enum CreateReportResult {
   created,
-  linked;
+  linked,
+  edited;
 
   String get message => switch (this) {
         CreateReportResult.created => 'Incident reported. Thanks!',
         CreateReportResult.linked => 'Added to the existing incident. Thanks!',
+        CreateReportResult.edited => 'Your report has been updated.',
       };
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ctrc/core/widgets/app_toast.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/voter_model.dart';
 
@@ -47,9 +48,7 @@ class _VotersBottomSheetState extends State<VotersBottomSheet> with SingleTicker
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load reactions: $e')),
-        );
+        AppToast.error(context, e, title: 'Could not load reactions');
       }
     }
   }

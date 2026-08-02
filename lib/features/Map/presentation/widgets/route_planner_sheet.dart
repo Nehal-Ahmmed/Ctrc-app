@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/widgets/app_toast.dart';
 import '../../data/datasources/geocoding_datasource.dart';
 import 'place_autocomplete_field.dart';
 
@@ -84,9 +85,7 @@ class _RoutePlannerSheetState extends State<RoutePlannerSheet> {
   void _useCurrentLocation() {
     final here = widget.currentLocation;
     if (here == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Still waiting for a GPS fix')),
-      );
+      AppToast.warning(context, 'Still waiting for a GPS fix');
       return;
     }
     setState(() => _from = here);

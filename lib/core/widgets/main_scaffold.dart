@@ -3,9 +3,11 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_strings.dart';
 import '../../features/Auth/presentation/providers/auth_provider.dart';
+import '../../features/Auth/presentation/widgets/sign_out_action.dart';
 import '../../features/Map/domain/models/map_scope.dart';
 import '../../features/Map/presentation/providers/map_controls_provider.dart';
 import '../../features/Notifications/presentation/providers/notification_provider.dart';
+import '../providers/reload_provider.dart';
 
 /// Index of the Map branch inside the [StatefulShellRoute].
 const int _mapBranchIndex = 1;
@@ -169,7 +171,7 @@ class MainScaffold extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
-    final isAuth = authState.status == AuthStatus.authenticated;
+    final isAuth = ref.watch(isAuthenticatedProvider);
     final strings = ref.watch(appStringsProvider);
 
     return Scaffold(
@@ -197,6 +199,14 @@ class MainScaffold extends ConsumerWidget {
               ),
             ),
           _buildNotificationButton(context, ref),
+          if (navigationShell.currentIndex == _mapBranchIndex)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: strings.refresh,
+              onPressed: () {
+                ref.read(reloadProvider.notifier).triggerReload(navigationShell.currentIndex);
+              },
+            ),
           if (isAuth && authState.user != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -335,8 +345,7 @@ class MainScaffold extends ConsumerWidget {
                         title: Text(strings.signOut, style: const TextStyle(color: Colors.redAccent)),
                         onTap: () {
                           Navigator.pop(context); // close drawer
-                          ref.read(authProvider.notifier).signOut();
-                          context.go('/home'); // ensure they are back to home
+                          confirmSignOut(context, ref);
                         },
                       )
                     : Row(

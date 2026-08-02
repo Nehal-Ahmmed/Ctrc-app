@@ -7,7 +7,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/location/last_known_location.dart';
 import '../../../../core/providers/settings_provider.dart';
+import '../../../../core/providers/reload_provider.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 import '../../../Notifications/presentation/providers/notification_provider.dart';
 import '../../../Report/data/datasources/report_remote_datasource.dart';
@@ -93,6 +96,13 @@ class _MapPageState extends ConsumerState<MapPage> {
   RouteRequest? _lastRouteRequest;
   bool _isRouting = false;
 
+  /// Where the phone last was, used for nothing but the opening camera.
+  ///
+  /// Deliberately kept out of [_currentLocation]: the pointer, the alert radius
+  /// and "my current location" all mean the live fix, and a remembered point
+  /// standing in for one would be a claim the app cannot back up.
+  final LatLng? _restoredCenter = LastKnownLocation.read();
+
   @override
   void initState() {
     super.initState();
@@ -169,6 +179,9 @@ class _MapPageState extends ConsumerState<MapPage> {
       _updateHeading(position.heading);
     });
 
+    // Where the next launch opens its camera.
+    unawaited(LastKnownLocation.save(point));
+
     if (recenter || isFirstFix) {
       _cameraMode = _CameraMode.followMe;
       _moveCamera(point, zoom: 15.5);
@@ -225,12 +238,11 @@ class _MapPageState extends ConsumerState<MapPage> {
   void _recenterOnMe() {
     final here = _currentLocation;
     if (here == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_locationDenied
-              ? 'Location permission is off — enable it in settings'
-              : 'Still waiting for a GPS fix...'),
-        ),
+      AppToast.warning(
+        context,
+        _locationDenied
+            ? 'Location permission is off — enable it in settings'
+            : 'Still waiting for a GPS fix…',
       );
       _startLocationTracking();
       return;
@@ -283,6 +295,20 @@ class _MapPageState extends ConsumerState<MapPage> {
   Future<void> _onScopeSelected(MapScope scope) async {
     ref.read(mapScopeProvider.notifier).state = scope;
     await _refreshArea(force: true, frameCamera: true);
+  }
+
+  /// The markers and the route hazards were fetched for whoever was signed in,
+  /// so a change of identity clears their saves and votes on the spot and asks
+  /// the backend again as the new viewer.
+  void _onIdentityChanged() {
+    if (!mounted) return;
+    setState(() {
+      _areaReports =
+          _areaReports.map((report) => report.withoutViewerState()).toList();
+    });
+    _refreshArea(force: true);
+    final request = _lastRouteRequest;
+    if (request != null && _routeAnalysis != null) _buildRoute(request);
   }
 
   Future<void> _refreshArea({
@@ -369,8 +395,14 @@ class _MapPageState extends ConsumerState<MapPage> {
       if (!mounted || requestId != _areaRequestId) return;
       setState(() => _isLoadingAlerts = false);
       if (force) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not load alerts: $e')),
+        AppToast.error(
+          context,
+          e,
+          title: 'Could not load alerts',
+          action: ToastAction(
+            label: 'Retry',
+            onPressed: () => _refreshArea(force: true),
+          ),
         );
       }
     }
@@ -442,7 +474,15 @@ class _MapPageState extends ConsumerState<MapPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isRouting = false);
-      _showNotice('Could not build the route: $e');
+      AppToast.error(
+        context,
+        e,
+        title: 'Could not build the route',
+        action: ToastAction(
+          label: 'Retry',
+          onPressed: () => _buildRoute(request),
+        ),
+      );
     }
   }
 
@@ -453,33 +493,15 @@ class _MapPageState extends ConsumerState<MapPage> {
     bool isTransient = false,
     VoidCallback? onRetry,
   }) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(
-                isTransient ? Icons.hourglass_bottom : Icons.error_outline,
-                color: Colors.white,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Expanded(child: Text(message)),
-            ],
-          ),
-          backgroundColor:
-              isTransient ? const Color(0xFFB26A00) : const Color(0xFF323232),
-          duration: Duration(seconds: isTransient ? 6 : 4),
-          action: onRetry == null
-              ? null
-              : SnackBarAction(
-                  label: 'Retry',
-                  textColor: Colors.white,
-                  onPressed: onRetry,
-                ),
-        ),
-      );
+    AppToast.show(
+      context,
+      message,
+      variant: isTransient ? ToastVariant.warning : ToastVariant.info,
+      duration: Duration(seconds: isTransient ? 6 : 4),
+      action: onRetry == null
+          ? null
+          : ToastAction(label: 'Retry', onPressed: onRetry),
+    );
   }
 
   void _clearRoute() {
@@ -600,8 +622,7 @@ class _MapPageState extends ConsumerState<MapPage> {
     setState(() => _reportPin = null);
     if (result == null) return;
 
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(result.message)));
+    AppToast.success(context, result.message);
     await _refreshArea(force: true);
   }
 
@@ -651,6 +672,16 @@ class _MapPageState extends ConsumerState<MapPage> {
       });
     });
 
+    ref.listen<String?>(authIdentityProvider, (previous, next) {
+      if (previous != next) _onIdentityChanged();
+    });
+
+    ref.listen<ReloadCommand?>(reloadProvider, (previous, next) {
+      if (next != null && next.index == 1) {
+        _refreshArea(force: true);
+      }
+    });
+
     final scope = ref.watch(mapScopeProvider);
     final analysis = _routeAnalysis;
 
@@ -667,14 +698,16 @@ class _MapPageState extends ConsumerState<MapPage> {
           ),
           if (analysis == null)
             Positioned(left: 12, bottom: 16, child: _buildAreaAlertPill()),
-        ],
-      ),
-      // Handing the route card to `bottomSheet` lets Scaffold lift the FABs
-      // above it automatically.
-      bottomSheet: analysis == null
-          ? null
-          : Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          Positioned(
+            right: 16,
+            bottom: analysis == null ? 16 : 210,
+            child: _buildFabColumn(),
+          ),
+          if (analysis != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
               child: RouteSummaryCard(
                 analysis: analysis,
                 onShowAlerts: _showRouteAlerts,
@@ -682,7 +715,8 @@ class _MapPageState extends ConsumerState<MapPage> {
                 onEdit: _openRoutePlanner,
               ),
             ),
-      floatingActionButton: _buildFabColumn(),
+        ],
+      ),
     );
   }
 
@@ -694,7 +728,9 @@ class _MapPageState extends ConsumerState<MapPage> {
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
-        initialCenter: here ?? const LatLng(23.8103, 90.4125),
+        // Live fix, else where the phone last was, else the country's centre.
+        initialCenter:
+            here ?? _restoredCenter ?? const LatLng(23.8103, 90.4125),
         initialZoom: 13,
         maxZoom: 18,
         minZoom: 3,

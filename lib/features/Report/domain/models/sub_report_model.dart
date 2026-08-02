@@ -25,6 +25,9 @@ class SubReportModel {
   /// still sitting at `Unknown`.
   final String? category;
 
+  /// Photo attached to this update, hosted on Cloudinary.
+  final String? imageUrl;
+
   /// Straight-line distance from the parent report, computed by MySQL with
   /// `ST_Distance_Sphere` when the row is inserted.
   final double? distFromParent;
@@ -45,6 +48,7 @@ class SubReportModel {
     this.description,
     this.evidenceType = 'heard',
     this.category,
+    this.imageUrl,
     this.distFromParent,
     this.upvoteCount = 0,
     this.downvoteCount = 0,
@@ -64,6 +68,7 @@ class SubReportModel {
       evidenceType:
           (json['evidenceType'] ?? json['evidence_type']) as String? ?? 'heard',
       category: json['category'] as String?,
+      imageUrl: (json['imageUrl'] ?? json['image_url']) as String?,
       distFromParent:
           _asDouble(json['distFromParent'] ?? json['dist_from_parent']),
       upvoteCount: _asInt(json['upvoteCount'] ?? json['upvote_count']) ?? 0,
@@ -91,6 +96,7 @@ class SubReportModel {
         'description': description,
         'evidenceType': evidenceType,
         'category': category,
+        'imageUrl': imageUrl,
         'distFromParent': distFromParent,
         'upvoteCount': upvoteCount,
         'downvoteCount': downvoteCount,

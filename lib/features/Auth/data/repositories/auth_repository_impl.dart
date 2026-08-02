@@ -1,13 +1,24 @@
 import 'package:fpdart/fpdart.dart';
+import '../../../../core/errors/app_error.dart';
 import '../../../../core/errors/failures.dart';
 import '../../domain/models/user_model.dart';
 import '../../domain/repositories/auth_repository.dart';
+import '../datasources/auth_local_datasource.dart';
 import '../datasources/auth_remote_datasource.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
   final AuthRemoteDataSource remoteDataSource;
 
-  AuthRepositoryImpl({required this.remoteDataSource});
+  /// The copy of the session that survives the app being closed.
+  final AuthLocalDataSource localDataSource;
+
+  AuthRepositoryImpl({
+    required this.remoteDataSource,
+    AuthLocalDataSource? localDataSource,
+  }) : localDataSource = localDataSource ?? AuthLocalDataSourceImpl();
+
+  @override
+  UserModel? cachedUser() => localDataSource.readSession()?.user;
 
   @override
   Future<Either<Failure, UserModel>> signIn({
@@ -19,9 +30,11 @@ class AuthRepositoryImpl implements AuthRepository {
         email: email,
         password: password,
       );
+      // From here the device can open as this person on its own.
+      await localDataSource.saveUser(user);
       return Right(user);
     } catch (e) {
-      return Left(AuthFailure('Sign in failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -41,9 +54,10 @@ class AuthRepositoryImpl implements AuthRepository {
         address: address,
         image_url: image_url,
       );
+      await localDataSource.saveUser(user);
       return Right(user);
     } catch (e) {
-      return Left(AuthFailure('Sign up failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -51,19 +65,31 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<Either<Failure, UserModel>> getCurrentUser() async {
     try {
       final user = await remoteDataSource.getCurrentUser();
+      // Refreshes the stored profile, so a name or avatar changed on another
+      // device is what the next cold start opens with.
+      await localDataSource.saveUser(user);
       return Right(user);
+    } on SessionExpiredException catch (e) {
+      // The token is gone or was refused, so nothing kept beside it is usable.
+      await localDataSource.clear();
+      return Left(SessionExpiredFailure(e.message));
     } catch (e) {
-      return Left(AuthFailure('Failed to get current user: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
   @override
   Future<Either<Failure, void>> signOut() async {
+    // Cleared first, and whatever the remote call does: a sign-out that leaves
+    // the previous account's profile, feed or saved posts sitting on the device
+    // is a worse outcome than one the server never hears about.
+    await localDataSource.clear();
+
     try {
       await remoteDataSource.signOut();
       return const Right(null);
     } catch (e) {
-      return Left(AuthFailure('Sign out failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -73,7 +99,7 @@ class AuthRepositoryImpl implements AuthRepository {
       await remoteDataSource.resetPassword(email);
       return const Right(null);
     } catch (e) {
-      return Left(AuthFailure('Password reset failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -89,9 +115,10 @@ class AuthRepositoryImpl implements AuthRepository {
         address: address,
         image_url: image_url,
       );
+      await localDataSource.saveUser(user);
       return Right(user);
     } catch (e) {
-      return Left(AuthFailure('Profile update failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -99,9 +126,10 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<Either<Failure, UserModel>> uploadAvatar(String filePath) async {
     try {
       final user = await remoteDataSource.uploadAvatar(filePath);
+      await localDataSource.saveUser(user);
       return Right(user);
     } catch (e) {
-      return Left(AuthFailure('Avatar upload failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -119,16 +147,7 @@ class AuthRepositoryImpl implements AuthRepository {
       );
       return const Right(null);
     } catch (e) {
-      return Left(AuthFailure(_readableMessage(e)));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
-  }
-
-  /// Unwraps `Exception: <message>` so the UI shows the server's wording
-  /// instead of Dart's exception formatting.
-  String _readableMessage(Object error) {
-    final text = error.toString();
-    return text.startsWith('Exception: ')
-        ? text.substring('Exception: '.length)
-        : text;
   }
 }

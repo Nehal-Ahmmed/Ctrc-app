@@ -5,47 +5,16 @@ import '../../../../core/l10n/app_strings.dart';
 import '../../../../core/widgets/sub_page_app_bar.dart';
 import '../../../../core/providers/settings_provider.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
+import '../../../Auth/presentation/widgets/sign_out_action.dart';
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
-
-  Future<void> _confirmSignOut(
-    BuildContext context,
-    WidgetRef ref,
-    AppStrings strings,
-  ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('${strings.logOut}?'),
-        content: const Text('You will need to sign in again to report, vote or '
-            'comment.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(strings.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(
-              strings.logOut,
-              style: const TextStyle(color: Colors.red),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-    await ref.read(authProvider.notifier).signOut();
-    if (context.mounted) context.go('/home');
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
     final strings = ref.watch(appStringsProvider);
-    final isAuthenticated = ref.watch(authProvider).user != null;
+    final isAuthenticated = ref.watch(isAuthenticatedProvider);
     final theme = Theme.of(context);
     final radiusKm = settings.reportRadius.toInt();
 
@@ -57,66 +26,23 @@ class SettingsPage extends ConsumerWidget {
       body: ListView(
         children: [
           const SizedBox(height: 16),
-          _buildSectionHeader(strings.accountAndSecurity, theme),
-          ListTile(
-            leading: const Icon(Icons.person_outline),
-            title: Text(strings.editProfile),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/edit-profile'),
-          ),
-          ListTile(
-            leading: const Icon(Icons.lock_outline),
-            title: Text(strings.changePassword),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push('/change-password'),
-          ),
-          if (isAuthenticated)
+          if (isAuthenticated) ...[
+            _buildSectionHeader(strings.accountAndSecurity, theme),
             ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: Text(
-                strings.logOut,
-                style: const TextStyle(color: Colors.red),
-              ),
-              onTap: () => _confirmSignOut(context, ref, strings),
-            )
-          else
-            ListTile(
-              leading: const Icon(Icons.login, color: Colors.blue),
-              title: Text(
-                strings.logIn,
-                style: const TextStyle(color: Colors.blue),
-              ),
-              onTap: () => context.push('/sign-in'),
+              leading: const Icon(Icons.person_outline),
+              title: Text(strings.editProfile),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/edit-profile'),
             ),
-          const Divider(),
+            ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: Text(strings.changePassword),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/change-password'),
+            ),
+            const Divider(),
+          ],
           _buildSectionHeader(strings.appPreferences, theme),
-          ListTile(
-            leading: const Icon(Icons.dark_mode_outlined),
-            title: Text(strings.theme),
-            trailing: DropdownButton<ThemeMode>(
-              value: settings.themeMode,
-              underline: const SizedBox(),
-              items: [
-                DropdownMenuItem(
-                  value: ThemeMode.system,
-                  child: Text(strings.themeSystem),
-                ),
-                DropdownMenuItem(
-                  value: ThemeMode.light,
-                  child: Text(strings.themeLight),
-                ),
-                DropdownMenuItem(
-                  value: ThemeMode.dark,
-                  child: Text(strings.themeDark),
-                ),
-              ],
-              onChanged: (mode) {
-                if (mode != null) {
-                  ref.read(settingsProvider.notifier).updateThemeMode(mode);
-                }
-              },
-            ),
-          ),
           ListTile(
             leading: const Icon(Icons.language),
             title: Text(strings.language),
@@ -194,6 +120,25 @@ class SettingsPage extends ConsumerWidget {
             title: Text(strings.appVersion),
             trailing: const Text('v1.0.0'),
           ),
+          const Divider(),
+          if (isAuthenticated)
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: Text(
+                strings.logOut,
+                style: const TextStyle(color: Colors.red),
+              ),
+              onTap: () => confirmSignOut(context, ref),
+            )
+          else
+            ListTile(
+              leading: const Icon(Icons.login, color: Colors.blue),
+              title: Text(
+                strings.logIn,
+                style: const TextStyle(color: Colors.blue),
+              ),
+              onTap: () => context.push('/sign-in'),
+            ),
           const SizedBox(height: 40),
         ],
       ),

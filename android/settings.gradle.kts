@@ -20,6 +20,11 @@ pluginManagement {
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
     id("com.android.application") version "8.11.1" apply false
+    // START: FlutterFire Configuration
+    // FlutterFire scaffolds 4.3.15, which predates AGP 8 and the Firebase BoM
+    // that firebase_core 4.x pulls in.
+    id("com.google.gms.google-services") version("4.4.3") apply false
+    // END: FlutterFire Configuration
     id("org.jetbrains.kotlin.android") version "2.2.20" apply false
 }
 

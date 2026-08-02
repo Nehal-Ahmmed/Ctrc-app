@@ -1,6 +1,23 @@
 import 'package:dio/dio.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/models/user_model.dart';
+import 'auth_local_datasource.dart';
+
+/// The session on this device is over: the token was refused, or there is not
+/// one to send.
+///
+/// Every other failure — no signal, a backend still waking up — leaves the
+/// stored session alone, so this is thrown only when the app genuinely has to
+/// let go of it.
+class SessionExpiredException implements Exception {
+  const SessionExpiredException([
+    this.message = 'Your session has ended. Please sign in again.',
+  ]);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
 
 /// Abstract class for remote authentication data source
 abstract class AuthRemoteDataSource {
@@ -40,11 +57,18 @@ abstract class AuthRemoteDataSource {
 class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   final Dio dio;
 
+  /// Where the token lands the moment the backend issues one. The profile that
+  /// comes back with it is stored by the repository, which is the only layer
+  /// that sees both halves of a session.
+  final AuthLocalDataSource localDataSource;
+
   AuthRemoteDataSourceImpl({
     Dio? dio,
+    AuthLocalDataSource? localDataSource,
     String baseUrl =
         'https://ctrc-backend.onrender.com', // Use deployed Render backend
-  }) : dio =
+  })  : localDataSource = localDataSource ?? AuthLocalDataSourceImpl(),
+        dio =
            dio ??
            (Dio(
              BaseOptions(
@@ -86,10 +110,10 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.statusCode == 200) {
         final data = response.data;
-        // Save token to preferences
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('auth_token', data['data']['token'] as String);
-        
+        // Remembered until sign-out; every later launch reuses it instead of
+        // asking for the password again.
+        await localDataSource.saveToken(data['data']['token'] as String);
+
         // Backend returns ApiResponse<AuthResponse>: { success, data: {token: ..., user: {...}}, message }
         return UserModel.fromJson(data['data']['user'] as Map<String, dynamic>);
       } else {
@@ -127,10 +151,9 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.statusCode == 201) {
         final data = response.data;
-        // Save token to preferences
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('auth_token', data['data']['token'] as String);
-        
+        // A fresh account is signed in from here on, same as a fresh sign-in.
+        await localDataSource.saveToken(data['data']['token'] as String);
+
         return UserModel.fromJson(data['data']['user'] as Map<String, dynamic>);
       } else {
         throw Exception(
@@ -145,19 +168,18 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   @override
   Future<UserModel> getCurrentUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
-    
+    final token = localDataSource.readToken();
+
     if (token == null) {
-      throw Exception('No token found');
+      throw const SessionExpiredException('You are not signed in.');
     }
-    
+
     try {
       final response = await dio.get(
         '/api/users/me',
         options: Options(headers: {'Authorization': 'Bearer $token'}),
       );
-      
+
       if (response.statusCode == 200) {
         final data = response.data;
         return UserModel.fromJson(data['data'] as Map<String, dynamic>);
@@ -165,18 +187,26 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
         throw Exception('Failed to get current user');
       }
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401 || e.response?.statusCode == 400) {
-        await prefs.remove('auth_token');
+      final status = e.response?.statusCode;
+
+      // Only the server actually refusing the token ends the session. Anything
+      // else — no signal, a timeout, the free tier still waking up — is a
+      // reason to try again later, not to sign somebody out.
+      if (status == 401 || status == 403) {
+        throw SessionExpiredException(
+          _extractErrorMessage(e.response?.data) ??
+              'Your session has ended. Please sign in again.',
+        );
       }
+
       final message = _extractErrorMessage(e.response?.data);
-      throw Exception(message ?? e.message ?? 'Session expired');
+      throw Exception(message ?? e.message ?? 'Could not reach the server');
     }
   }
 
   @override
   Future<void> signOut() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('auth_token');
+    await localDataSource.clear();
   }
 
   @override
@@ -191,11 +221,10 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     required String newPassword,
     required String confirmPassword,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
+    final token = localDataSource.readToken();
 
     if (token == null) {
-      throw Exception('No token found');
+      throw const SessionExpiredException('You are not signed in.');
     }
 
     try {
@@ -226,13 +255,12 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     String? address,
     String? image_url,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
-    
+    final token = localDataSource.readToken();
+
     if (token == null) {
-      throw Exception('No token found');
+      throw const SessionExpiredException('You are not signed in.');
     }
-    
+
     try {
       final response = await dio.put(
         '/api/users/me',
@@ -265,13 +293,12 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   @override
   Future<UserModel> uploadAvatar(String filePath) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
-    
+    final token = localDataSource.readToken();
+
     if (token == null) {
-      throw Exception('No token found');
+      throw const SessionExpiredException('You are not signed in.');
     }
-    
+
     try {
       final formData = FormData.fromMap({
         'file': await MultipartFile.fromFile(filePath),

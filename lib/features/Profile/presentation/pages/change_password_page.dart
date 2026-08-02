@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/widgets/sub_page_app_bar.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 
@@ -47,9 +48,7 @@ class _ChangePasswordPageState extends ConsumerState<ChangePasswordPage> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Password changed successfully')),
-    );
+    AppToast.success(context, 'Password changed');
     if (context.canPop()) context.pop();
   }
 

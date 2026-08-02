@@ -3,7 +3,9 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/errors/app_error.dart';
 import '../../../../core/l10n/app_strings.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/widgets/sub_page_app_bar.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 import '../../../Map/domain/services/incident_severity.dart';
@@ -130,9 +132,39 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     await _load();
   }
 
-  void _notify(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  /// Reopens the create sheet with this report's details filled in, so saving
+  /// overwrites the original instead of filing a second one. Where the report
+  /// was pinned is not editable — people voted on an incident at that spot.
+  Future<void> _editReport() async {
+    final report = _report;
+    if (report == null) return;
+    if (!_requireLogin('edit your report')) return;
+
+    final location = report.location;
+
+    final result = await showModalBottomSheet<CreateReportResult>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => CreateReportBottomSheet(
+        latitude: location?.latitude ?? 0,
+        longitude: location?.longitude ?? 0,
+        editReport: report,
+        locationLabel: [location?.address, location?.city]
+            .whereType<String>()
+            .where((e) => e.isNotEmpty)
+            .join(', '),
+      ),
+    );
+
+    if (result == null || !mounted) return;
+    _notify(result.message);
+    await _load();
   }
+
+  void _notify(String message) => AppToast.success(context, message);
 
   Future<void> _load() async {
     await Future.wait([_loadReport(), _loadComments()]);
@@ -156,7 +188,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
         _isLoadingReport = false;
         // Keep whatever we were handed; only surface the error if we have
         // nothing at all to show.
-        if (_report == null) _error = '$e';
+        if (_report == null) _error = AppError.messageOf(e);
       });
     }
   }
@@ -181,11 +213,20 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     return int.tryParse(user.user_id);
   }
 
+  /// This page stays open across a sign-out, so the save and vote controls have
+  /// to forget the previous viewer and reload as whoever is here now.
+  void _onIdentityChanged() {
+    if (!mounted) return;
+    final report = _report;
+    setState(() {
+      if (report != null) _report = report.withoutViewerState();
+    });
+    _load();
+  }
+
   bool _requireLogin(String action) {
     if (_currentUserId != null) return true;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Please log in to $action')),
-    );
+    AppToast.info(context, 'Please log in to $action');
     return false;
   }
 
@@ -205,8 +246,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _report = report);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to vote: $e')));
+      AppToast.error(context, e, title: 'Vote not saved');
     }
   }
 
@@ -227,8 +267,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _report = report);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to update save: $e')));
+      AppToast.error(context, e, title: 'Could not update saved posts');
     }
   }
 
@@ -258,13 +297,16 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isPostingComment = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to comment: $e')));
+      AppToast.error(context, e, title: 'Comment not posted');
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<String?>(authIdentityProvider, (previous, next) {
+      if (previous != next) _onIdentityChanged();
+    });
+
     final report = _report;
     final strings = ref.watch(appStringsProvider);
 
@@ -273,6 +315,14 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
       appBar: SubPageAppBar(
         title: strings.reportDetails,
         menuItems: [
+          // Only the person who filed it can change it, so the option is not
+          // offered to anybody else in the first place.
+          if (report != null && report.userId == _currentUserId)
+            SubPageMenuItem(
+              label: 'Edit report',
+              icon: Icons.edit_outlined,
+              onSelected: _editReport,
+            ),
           SubPageMenuItem(
             label: 'Add an update',
             icon: Icons.add_comment_outlined,
@@ -434,6 +484,18 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
             Text(
               report.description!,
               style: const TextStyle(fontSize: 15, height: 1.4),
+            ),
+          ],
+          if (report.imageUrl != null && report.imageUrl!.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.network(
+                report.imageUrl!,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stack) => const SizedBox.shrink(),
+              ),
             ),
           ],
           if (location?.address != null || location?.city != null) ...[

@@ -67,11 +67,22 @@ class IncidentSeverity {
   }
 
   /// Reports whose `expiresAt` is in the past no longer affect the road.
+  ///
+  /// The backend sends a `LocalDateTime`, so the string carries no timezone.
+  /// `DateTime.parse` would read that as the phone's own clock, which is six
+  /// hours ahead of the server here — long enough that a report filed a minute
+  /// ago looked expired and dropped straight off the map. The server runs on
+  /// UTC, so a bare timestamp is read as UTC.
   static bool isActive(ReportModel report) {
     final raw = report.expiresAt;
     if (raw == null || raw.isEmpty) return true;
-    final parsed = DateTime.tryParse(raw);
+    final parsed = DateTime.tryParse(_asUtc(raw));
     if (parsed == null) return true;
-    return parsed.isAfter(DateTime.now());
+    return parsed.isAfter(DateTime.now().toUtc());
   }
+
+  static final _hasTimezone = RegExp(r'(Z|[+-]\d{2}:?\d{2})$');
+
+  static String _asUtc(String raw) =>
+      _hasTimezone.hasMatch(raw) ? raw : '${raw}Z';
 }

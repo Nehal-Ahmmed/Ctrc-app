@@ -1,11 +1,16 @@
+import 'dart:async';
+
 import 'package:ctrc/core/l10n/app_strings.dart';
+import 'package:ctrc/core/widgets/app_toast.dart';
 import 'package:ctrc/core/widgets/sub_page_app_bar.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
+import 'package:ctrc/features/Report/data/datasources/report_local_cache.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
 import 'package:ctrc/features/Report/domain/services/vote_toggle.dart';
 import 'package:ctrc/features/Report/presentation/widgets/comments_bottom_sheet.dart';
 import 'package:ctrc/features/Report/presentation/widgets/report_card_widget.dart';
+import 'package:ctrc/features/Report/presentation/widgets/create_report_bottom_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -19,12 +24,22 @@ class MyReportsPage extends ConsumerStatefulWidget {
 
 class _MyReportsPageState extends ConsumerState<MyReportsPage> {
   final ReportRemoteDataSource _remoteDataSource = ReportRemoteDataSourceImpl();
+  final ReportLocalCache _cache = ReportLocalCache();
   List<ReportModel> _myReports = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+
+    // Last time's list, so the page opens with the user's own reports on it
+    // instead of a spinner over a backend that may be waking up.
+    final cached = _cache.read(
+      ReportLocalCache.mineBucket,
+      userId: ref.read(authIdentityProvider),
+    );
+    if (cached != null) _myReports = cached.reports;
+
     _fetchMyReports();
   }
 
@@ -43,6 +58,11 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
 
     try {
       final reports = await _remoteDataSource.getMyReports(userId);
+      unawaited(_cache.write(
+        ReportLocalCache.mineBucket,
+        reports,
+        userId: ref.read(authIdentityProvider),
+      ));
       if (mounted) {
         setState(() {
           _myReports = reports;
@@ -52,9 +72,9 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load your reports: $e')),
-        );
+        // With the stored list already on screen there is nothing to replace,
+        // so the failure is worth saying out loud either way.
+        AppToast.error(context, e, title: 'Could not load your reports');
       }
     }
   }
@@ -74,8 +94,7 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _myReports[index] = report);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to vote: $e')));
+      AppToast.error(context, e, title: 'Vote not saved');
     }
   }
 
@@ -95,8 +114,7 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _myReports[index] = report);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to update save: $e')));
+      AppToast.error(context, e, title: 'Could not update saved posts');
     }
   }
 
@@ -118,9 +136,48 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
     );
   }
 
+  Future<void> _handleEditReport(ReportModel report, int index) async {
+    final location = report.location;
+    final result = await showModalBottomSheet<CreateReportResult>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => CreateReportBottomSheet(
+        latitude: location?.latitude ?? 0,
+        longitude: location?.longitude ?? 0,
+        editReport: report,
+        locationLabel: [location?.address, location?.city]
+            .whereType<String>()
+            .where((e) => e.isNotEmpty)
+            .join(', '),
+      ),
+    );
+
+    if (result == CreateReportResult.edited) {
+      _fetchMyReports();
+    }
+  }
+
+  /// Nothing here survives a change of account — the whole list belonged to the
+  /// previous one.
+  void _onIdentityChanged() {
+    if (!mounted) return;
+    setState(() {
+      _myReports = [];
+      _isLoading = true;
+    });
+    _fetchMyReports();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isAuthenticated = ref.watch(authProvider).user != null;
+    ref.listen<String?>(authIdentityProvider, (previous, next) {
+      if (previous != next) _onIdentityChanged();
+    });
+
+    final isAuthenticated = ref.watch(isAuthenticatedProvider);
     final strings = ref.watch(appStringsProvider);
 
     return Scaffold(
@@ -154,6 +211,7 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
                                   _handleVote(report, 'down', index),
                               onComment: () => _openCommentSheet(report, index),
                               onSave: () => _handleSave(report, index),
+                              onEdit: () => _handleEditReport(report, index),
                             );
                           },
                         ),

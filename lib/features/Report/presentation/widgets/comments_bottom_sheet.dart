@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ctrc/core/l10n/app_strings.dart';
+import 'package:ctrc/core/widgets/app_toast.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/comment_model.dart';
@@ -55,9 +56,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load comments: $e')),
-        );
+        AppToast.error(context, e, title: 'Could not load comments');
       }
     }
   }
@@ -80,9 +79,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
 
     final user = ref.read(authProvider).user;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to add a comment')),
-      );
+      AppToast.info(context, 'Please log in to add a comment');
       return;
     }
 
@@ -105,9 +102,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
       await _fetchComments();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to post comment: $e')),
-        );
+        AppToast.error(context, e, title: 'Comment not posted');
       }
     } finally {
       if (mounted) {

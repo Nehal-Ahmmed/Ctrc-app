@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../storage/local_store.dart';
 
 class SettingsState {
   final ThemeMode themeMode;
@@ -33,56 +34,49 @@ class SettingsState {
 }
 
 class SettingsNotifier extends StateNotifier<SettingsState> {
-  SettingsNotifier() : super(const SettingsState()) {
-    _loadSettings();
-  }
+  SettingsNotifier({LocalStore? store})
+      : _store = store ?? LocalStore.instance,
+        super(_restore(store ?? LocalStore.instance));
 
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+  final LocalStore _store;
 
-    // Load theme
-    final themeIndex = prefs.getInt('theme_mode') ?? ThemeMode.system.index;
-    final themeMode = ThemeMode.values[themeIndex];
+  /// Read before the first frame rather than after it. Loading the theme
+  /// asynchronously meant the app painted in the system theme and then snapped
+  /// to the chosen one — a visible flash on every launch for anyone who had
+  /// picked dark mode.
+  static SettingsState _restore(LocalStore store) {
+    final themeIndex = store.getInt(StorageKeys.themeMode);
 
-    // Load radius
-    final radius = prefs.getDouble('report_radius') ?? 10.0;
-
-    // Load language
-    final lang = prefs.getString('language_code') ?? 'en';
-
-    // Load alert preference
-    final alerts = prefs.getBool('nearby_alerts_enabled') ?? true;
-
-    state = state.copyWith(
-      themeMode: themeMode,
-      reportRadius: radius,
-      languageCode: lang,
-      nearbyAlertsEnabled: alerts,
+    return SettingsState(
+      themeMode: (themeIndex != null &&
+              themeIndex >= 0 &&
+              themeIndex < ThemeMode.values.length)
+          ? ThemeMode.values[themeIndex]
+          : ThemeMode.system,
+      reportRadius: store.getDouble(StorageKeys.reportRadius) ?? 10.0,
+      languageCode: store.getString(StorageKeys.languageCode) ?? 'en',
+      nearbyAlertsEnabled: store.getBool(StorageKeys.nearbyAlerts) ?? true,
     );
   }
 
   Future<void> updateThemeMode(ThemeMode mode) async {
     state = state.copyWith(themeMode: mode);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('theme_mode', mode.index);
+    await _store.setInt(StorageKeys.themeMode, mode.index);
   }
 
   Future<void> updateReportRadius(double radius) async {
     state = state.copyWith(reportRadius: radius);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble('report_radius', radius);
+    await _store.setDouble(StorageKeys.reportRadius, radius);
   }
 
   Future<void> updateLanguage(String code) async {
     state = state.copyWith(languageCode: code);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('language_code', code);
+    await _store.setString(StorageKeys.languageCode, code);
   }
 
   Future<void> updateNearbyAlerts(bool enabled) async {
     state = state.copyWith(nearbyAlertsEnabled: enabled);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('nearby_alerts_enabled', enabled);
+    await _store.setBool(StorageKeys.nearbyAlerts, enabled);
   }
 }
 

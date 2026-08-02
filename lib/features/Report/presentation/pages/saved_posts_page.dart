@@ -1,11 +1,16 @@
+import 'dart:async';
+
 import 'package:ctrc/core/l10n/app_strings.dart';
+import 'package:ctrc/core/widgets/app_toast.dart';
 import 'package:ctrc/core/widgets/sub_page_app_bar.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
+import 'package:ctrc/features/Report/data/datasources/report_local_cache.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
 import 'package:ctrc/features/Report/domain/services/vote_toggle.dart';
 import 'package:ctrc/features/Report/presentation/widgets/comments_bottom_sheet.dart';
 import 'package:ctrc/features/Report/presentation/widgets/report_card_widget.dart';
+import 'package:ctrc/features/Report/presentation/widgets/create_report_bottom_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -19,12 +24,22 @@ class SavedPostsPage extends ConsumerStatefulWidget {
 
 class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
   final ReportRemoteDataSource _remoteDataSource = ReportRemoteDataSourceImpl();
+  final ReportLocalCache _cache = ReportLocalCache();
   List<ReportModel> _savedReports = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+
+    // A bookmark list is something the user curated; it should be readable
+    // without waiting on — or having — a connection.
+    final cached = _cache.read(
+      ReportLocalCache.savedBucket,
+      userId: ref.read(authIdentityProvider),
+    );
+    if (cached != null) _savedReports = cached.reports;
+
     _fetchSavedReports();
   }
 
@@ -43,6 +58,11 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
 
     try {
       final reports = await _remoteDataSource.getSavedReports(userId);
+      unawaited(_cache.write(
+        ReportLocalCache.savedBucket,
+        reports,
+        userId: ref.read(authIdentityProvider),
+      ));
       if (mounted) {
         setState(() {
           _savedReports = reports;
@@ -52,9 +72,7 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load saved reports: $e')),
-        );
+        AppToast.error(context, e, title: 'Could not load saved reports');
       }
     }
   }
@@ -74,8 +92,7 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _savedReports[index] = report);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to vote: $e')));
+      AppToast.error(context, e, title: 'Vote not saved');
     }
   }
 
@@ -90,22 +107,20 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
     try {
       await _remoteDataSource.unsaveReport(report.reportId, userId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: const Text('Removed from saved'),
-            action: SnackBarAction(
-              label: 'Undo',
-              onPressed: () => _restore(report, index, userId),
-            ),
-          ),
-        );
+      AppToast.show(
+        context,
+        'Removed from saved',
+        // Long enough to notice the Undo and reach for it.
+        duration: const Duration(seconds: 5),
+        action: ToastAction(
+          label: 'Undo',
+          onPressed: () => _restore(report, index, userId),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _savedReports.insert(index, report));
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to unsave: $e')));
+      AppToast.error(context, e, title: 'Could not remove that');
     }
   }
 
@@ -121,8 +136,7 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Could not restore: $e')));
+      AppToast.error(context, e, title: 'Could not restore');
     }
   }
 
@@ -145,9 +159,48 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
     );
   }
 
+  Future<void> _handleEditReport(ReportModel report, int index) async {
+    final location = report.location;
+    final result = await showModalBottomSheet<CreateReportResult>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => CreateReportBottomSheet(
+        latitude: location?.latitude ?? 0,
+        longitude: location?.longitude ?? 0,
+        editReport: report,
+        locationLabel: [location?.address, location?.city]
+            .whereType<String>()
+            .where((e) => e.isNotEmpty)
+            .join(', '),
+      ),
+    );
+
+    if (result == CreateReportResult.edited) {
+      _fetchSavedReports();
+    }
+  }
+
+  /// Nothing here survives a change of account — the whole list belonged to the
+  /// previous one.
+  void _onIdentityChanged() {
+    if (!mounted) return;
+    setState(() {
+      _savedReports = [];
+      _isLoading = true;
+    });
+    _fetchSavedReports();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isAuthenticated = ref.watch(authProvider).user != null;
+    ref.listen<String?>(authIdentityProvider, (previous, next) {
+      if (previous != next) _onIdentityChanged();
+    });
+
+    final isAuthenticated = ref.watch(isAuthenticatedProvider);
     final strings = ref.watch(appStringsProvider);
 
     return Scaffold(
@@ -174,6 +227,10 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
                           itemCount: _savedReports.length,
                           itemBuilder: (context, index) {
                             final report = _savedReports[index];
+                            final user = ref.read(authProvider).user;
+                            final currentUserId = user != null ? int.tryParse(user.user_id) : null;
+                            final isOwner = currentUserId != null && report.userId == currentUserId;
+
                             return ReportCardWidget(
                               report: report,
                               onUpvote: () => _handleVote(report, 'up', index),
@@ -181,6 +238,7 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
                                   _handleVote(report, 'down', index),
                               onComment: () => _openCommentSheet(report, index),
                               onSave: () => _handleUnsave(report, index),
+                              onEdit: isOwner ? () => _handleEditReport(report, index) : null,
                             );
                           },
                         ),

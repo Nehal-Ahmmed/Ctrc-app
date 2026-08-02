@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../../core/storage/local_store.dart';
 import '../../../Report/domain/models/report_model.dart';
 
 /// One incident returned by the corridor scan, with where it sits relative to
@@ -51,11 +51,10 @@ class RouteCorridorDataSource {
     if (path.isEmpty) return const [];
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
+      final token = LocalStore.instance.getString(StorageKeys.authToken);
 
       final headers = <String, dynamic>{
-        if (token != null) 'Authorization': 'Bearer $token',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
         if (userId != null) 'X-User-Id': userId.toString(),
       };
 
