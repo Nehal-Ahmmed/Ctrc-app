@@ -2,10 +2,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:ctrc/core/l10n/app_strings.dart';
+import 'package:ctrc/core/providers/settings_provider.dart';
+import 'package:ctrc/features/Notifications/presentation/providers/notification_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
+import 'package:ctrc/features/Report/domain/models/report_category.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
+import 'package:ctrc/features/Report/domain/services/vote_toggle.dart';
 import 'package:ctrc/features/Report/presentation/widgets/create_report_bottom_sheet.dart';
 import 'package:ctrc/features/Report/presentation/widgets/report_card_widget.dart';
+import 'package:ctrc/features/Report/presentation/widgets/comments_bottom_sheet.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
@@ -24,17 +30,10 @@ class _HomePageState extends ConsumerState<HomePage> {
   String _selectedCategory = 'All';
   final ReportRemoteDataSource _remoteDataSource = ReportRemoteDataSourceImpl();
   StreamSubscription<Position>? _positionStreamSub;
-  
-  final List<String> _categories = [
-    'All',
-    'Road block',
-    'Robbery',
-    'Accident',
-    'Fire',
-    'Traffic jam',
-    'Riot',
-    'Other'
-  ];
+
+  /// Same list the create sheet offers, so a filter chip always matches what
+  /// was actually filed.
+  final List<String> _categories = ReportCategory.filterLabels;
 
   @override
   void initState() {
@@ -91,19 +90,33 @@ class _HomePageState extends ConsumerState<HomePage> {
     });
 
     try {
+      final user = ref.read(authProvider).user;
+      final userId = user != null ? int.tryParse(user.user_id) : null;
+
       final reports = await _remoteDataSource.getNearbyReports(
         lat: _currentLocation!.latitude,
         lng: _currentLocation!.longitude,
-        radius: 5.0, // 5km
+        // Honours the "Report Radius" preference in Settings.
+        radius: ref.read(settingsProvider).reportRadius,
         category: _selectedCategory,
+        userId: userId,
       );
-      
+
       if (mounted) {
         setState(() {
           _feedReports = reports;
         });
+
+        // Anything new near the user becomes an entry in the alert inbox.
+        ref.read(notificationsProvider.notifier).ingest(
+              reports,
+              viewerLocation: _currentLocation,
+              viewerUserId: userId,
+              enabled: ref.read(settingsProvider).nearbyAlertsEnabled,
+            );
       }
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('Error fetching feed: $e\n$stack');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error fetching feed: $e')),
@@ -121,12 +134,19 @@ class _HomePageState extends ConsumerState<HomePage> {
   void _openCreateReportSheet() async {
     if (_currentLocation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Waiting for GPS location...')),
+        SnackBar(content: Text(ref.read(appStringsProvider).waitingForGps)),
       );
       return;
     }
 
-    final result = await showModalBottomSheet(
+    if (ref.read(authProvider).user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(ref.read(appStringsProvider).logInToReport)),
+      );
+      return;
+    }
+
+    final result = await showModalBottomSheet<CreateReportResult>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
@@ -135,13 +155,12 @@ class _HomePageState extends ConsumerState<HomePage> {
       builder: (_) => CreateReportBottomSheet(
         latitude: _currentLocation!.latitude,
         longitude: _currentLocation!.longitude,
-        parentReportId: null, // Initial report
       ),
     );
 
-    if (result == true) {
+    if (result != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Report submitted successfully!')),
+        SnackBar(content: Text(result.message)),
       );
       _fetchFeedData();
     }
@@ -151,18 +170,16 @@ class _HomePageState extends ConsumerState<HomePage> {
     final user = ref.read(authProvider).user;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to vote')),
+        SnackBar(content: Text(ref.read(appStringsProvider).logInToVote)),
       );
       return;
     }
-    
-    // Optimistic update
+
+    // Save original state
+    final originalReport = _feedReports[index];
+
     setState(() {
-       if (type == 'up') {
-          _feedReports[index] = report.copyWith(upvoteCount: report.upvoteCount + 1);
-       } else {
-          _feedReports[index] = report.copyWith(downvoteCount: report.downvoteCount + 1);
-       }
+      _feedReports[index] = VoteToggle.apply(report, type);
     });
 
     try {
@@ -171,11 +188,12 @@ class _HomePageState extends ConsumerState<HomePage> {
         userId: int.parse(user.user_id),
         type: type,
       );
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('Error voting: $e\n$stack');
       // Revert optimistic update on error
       if (mounted) {
         setState(() {
-           _feedReports[index] = report;
+           _feedReports[index] = originalReport;
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to vote: $e')),
@@ -185,104 +203,39 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _openCommentDialog(ReportModel report, int index) {
-      final user = ref.read(authProvider).user;
-      if (user == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please log in to comment')),
-        );
-        return;
-      }
-      
-      final TextEditingController commentController = TextEditingController();
-      bool isSubmitting = false;
-
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        builder: (context) {
-          return StatefulBuilder(
-            builder: (context, setModalState) {
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(context).viewInsets.bottom,
-                  left: 16,
-                  right: 16,
-                  top: 16,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Add Comment', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: commentController,
-                      decoration: const InputDecoration(
-                        hintText: 'Write a comment...',
-                        border: OutlineInputBorder(),
-                      ),
-                      maxLines: 3,
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: isSubmitting ? null : () async {
-                          if (commentController.text.trim().isEmpty) return;
-                          
-                          setModalState(() {
-                            isSubmitting = true;
-                          });
-
-                          try {
-                            await _remoteDataSource.addComment(
-                              reportId: report.reportId,
-                              userId: int.parse(user.user_id),
-                              content: commentController.text.trim(),
-                            );
-                            
-                            if (mounted) {
-                              setState(() {
-                                _feedReports[index] = report.copyWith(
-                                  commentCount: report.commentCount + 1,
-                                );
-                              });
-                              Navigator.pop(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Comment added')),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              setModalState(() {
-                                isSubmitting = false;
-                              });
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Failed to comment: $e')),
-                              );
-                            }
-                          }
-                        },
-                        child: isSubmitting 
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator())
-                            : const Text('Post Comment'),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              );
-            },
-          );
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => CommentsBottomSheet(
+        reportId: report.reportId,
+        onCommentAdded: () {
+          setState(() {
+            _feedReports[index] = _feedReports[index].copyWith(
+              commentCount: _feedReports[index].commentCount + 1,
+            );
+          });
         },
-      );
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    // Changing the radius in Settings should reshape the feed straight away.
+    ref.listen<double>(
+      settingsProvider.select((s) => s.reportRadius),
+      (previous, next) {
+        if (previous != null && previous != next) _fetchFeedData();
+      },
+    );
+
+    final strings = ref.watch(appStringsProvider);
+
     return Scaffold(
       backgroundColor: Colors.grey[200],
       appBar: AppBar(
-        title: const Text('Local Feed'),
+        title: Text(strings.localFeed),
         elevation: 1,
       ),
       body: RefreshIndicator(
@@ -300,8 +253,37 @@ class _HomePageState extends ConsumerState<HomePage> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_feedReports.isEmpty)
-              const SliverFillRemaining(
-                child: Center(child: Text('No incidents reported in your 5km radius.')),
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.check_circle_outline,
+                            size: 48, color: Colors.grey[400]),
+                        const SizedBox(height: 12),
+                        Text(
+                          _selectedCategory == ReportCategory.allLabel
+                              ? strings.noIncidentsWithin(
+                                  ref.watch(settingsProvider)
+                                      .reportRadius
+                                      .toInt(),
+                                )
+                              : strings.noCategoryIncidentsWithin(
+                                  _selectedCategory,
+                                  ref.watch(settingsProvider)
+                                      .reportRadius
+                                      .toInt(),
+                                ),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey[600]),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               )
             else
               SliverList(
@@ -330,10 +312,13 @@ class _HomePageState extends ConsumerState<HomePage> {
         itemBuilder: (context, index) {
           final category = _categories[index];
           final isSelected = category == _selectedCategory;
+          final label = category == ReportCategory.allLabel
+              ? ref.watch(appStringsProvider).categoryAll
+              : category;
           return Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: FilterChip(
-              label: Text(category),
+              label: Text(label),
               selected: isSelected,
               onSelected: (selected) {
                 if (selected) {
@@ -388,7 +373,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   borderRadius: BorderRadius.circular(24),
                 ),
                 child: Text(
-                  'What\'s happening nearby?',
+                  ref.watch(appStringsProvider).whatsHappeningNearby,
                   style: TextStyle(color: Colors.grey[600]),
                 ),
               ),
@@ -403,7 +388,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     final user = ref.read(authProvider).user;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to save posts')),
+        SnackBar(content: Text(ref.read(appStringsProvider).logInToSave)),
       );
       return;
     }

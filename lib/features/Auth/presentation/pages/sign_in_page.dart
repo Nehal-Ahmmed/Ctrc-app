@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/l10n/app_strings.dart';
 import '../providers/auth_provider.dart';
 
 class SignInPage extends ConsumerStatefulWidget {
@@ -39,6 +40,7 @@ class _SignInPageState extends ConsumerState<SignInPage> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
+    final strings = ref.watch(appStringsProvider);
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -60,7 +62,7 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Welcome Back',
+                    strings.welcomeBack,
                     textAlign: TextAlign.center,
                     style: theme.textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.bold,
@@ -68,7 +70,7 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Sign in to your account',
+                    strings.signInToYourAccount,
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyLarge?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
@@ -117,10 +119,10 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Email',
-                      prefixIcon: Icon(Icons.email_outlined),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: strings.email,
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      border: const OutlineInputBorder(),
                     ),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
@@ -144,7 +146,7 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                     textInputAction: TextInputAction.done,
                     onFieldSubmitted: (_) => _handleSignIn(),
                     decoration: InputDecoration(
-                      labelText: 'Password',
+                      labelText: strings.password,
                       prefixIcon: const Icon(Icons.lock_outlined),
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
@@ -174,10 +176,8 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: () {
-                        // TODO: Navigate to forgot password
-                      },
-                      child: const Text('Forgot Password?'),
+                      onPressed: () => context.push('/forgot-password'),
+                      child: Text(strings.forgotPassword),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -191,7 +191,7 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                             width: 20,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Text('Sign In'),
+                        : Text(strings.logIn),
                   ),
                   const SizedBox(height: 24),
 
@@ -200,14 +200,14 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        "Don't have an account? ",
+                        strings.dontHaveAnAccount,
                         style: theme.textTheme.bodyMedium,
                       ),
                       TextButton(
                         onPressed: () {
                           context.push('/sign-up');
                         },
-                        child: const Text('Sign Up'),
+                        child: Text(strings.signUp),
                       ),
                     ],
                   ),

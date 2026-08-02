@@ -94,4 +94,41 @@ class AuthRepositoryImpl implements AuthRepository {
       return Left(AuthFailure('Profile update failed: ${e.toString()}'));
     }
   }
+
+  @override
+  Future<Either<Failure, UserModel>> uploadAvatar(String filePath) async {
+    try {
+      final user = await remoteDataSource.uploadAvatar(filePath);
+      return Right(user);
+    } catch (e) {
+      return Left(AuthFailure('Avatar upload failed: ${e.toString()}'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, void>> changePassword({
+    required String currentPassword,
+    required String newPassword,
+    required String confirmPassword,
+  }) async {
+    try {
+      await remoteDataSource.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+        confirmPassword: confirmPassword,
+      );
+      return const Right(null);
+    } catch (e) {
+      return Left(AuthFailure(_readableMessage(e)));
+    }
+  }
+
+  /// Unwraps `Exception: <message>` so the UI shows the server's wording
+  /// instead of Dart's exception formatting.
+  String _readableMessage(Object error) {
+    final text = error.toString();
+    return text.startsWith('Exception: ')
+        ? text.substring('Exception: '.length)
+        : text;
+  }
 }
