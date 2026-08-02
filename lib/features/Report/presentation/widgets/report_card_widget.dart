@@ -103,6 +103,9 @@ class ReportCardWidget extends StatelessWidget {
                         Text(
                           [
                             category.label,
+                            if (report.evidenceType == 'heard')
+                              'heard from others',
+                            if (report.evidenceType == 'guessed') 'a guess',
                             if (createdAt != null)
                               formatRelativeTime(createdAt),
                             if (distance.isNotEmpty) distance,
@@ -112,6 +115,8 @@ class ReportCardWidget extends StatelessWidget {
                             fontSize: 13,
                           ),
                         ),
+                        const SizedBox(height: 6),
+                        _buildStatusBadge(),
                       ],
                     ),
                   ),
@@ -136,6 +141,10 @@ class ReportCardWidget extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 15),
                 ),
+              ],
+              if (report.subReportCount > 0) ...[
+                const SizedBox(height: 12),
+                _buildIncidentGroupPill(context),
               ],
               const SizedBox(height: 16),
               const Divider(height: 1),
@@ -214,6 +223,72 @@ class ReportCardWidget extends StatelessWidget {
                 ],
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Whether the community has backed this report up yet. Worked out by a
+  /// database trigger: how many upvotes it takes depends on how the reporter
+  /// knew about the incident in the first place.
+  Widget _buildStatusBadge() {
+    final (label, color) = switch (report.status) {
+      'verified' => ('Verified', const Color(0xFF1E8E3E)),
+      'disputed' => ('Disputed', const Color(0xFFD93025)),
+      _ => ('Not verified yet', const Color(0xFF5F6368)),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  /// Shows that other people linked their reports to this one, which is the
+  /// visible half of the incident-group idea — without it a card looks like a
+  /// lone sighting no matter how many people confirmed it.
+  Widget _buildIncidentGroupPill(BuildContext context) {
+    final count = report.subReportCount;
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Material(
+        color: const Color(0xFF1A73E8).withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          onTap: () => _open(context),
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.link, size: 15, color: Color(0xFF1A73E8)),
+                const SizedBox(width: 6),
+                Text(
+                  count == 1
+                      ? '1 other person reported this'
+                      : '$count others reported this',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A73E8),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

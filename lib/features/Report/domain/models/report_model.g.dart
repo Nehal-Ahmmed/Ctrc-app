@@ -13,6 +13,8 @@ ReportModel _$ReportModelFromJson(Map<String, dynamic> json) => ReportModel(
   title: json['title'] as String,
   description: json['description'] as String?,
   category: json['category'] as String,
+  evidenceType: json['evidenceType'] as String? ?? 'seen',
+  status: json['status'] as String? ?? 'unverified',
   upvoteCount: (json['upvoteCount'] as num?)?.toInt() ?? 0,
   downvoteCount: (json['downvoteCount'] as num?)?.toInt() ?? 0,
   commentCount: (json['commentCount'] as num?)?.toInt() ?? 0,
@@ -25,6 +27,12 @@ ReportModel _$ReportModelFromJson(Map<String, dynamic> json) => ReportModel(
   location: json['location'] == null
       ? null
       : LocationModel.fromJson(json['location'] as Map<String, dynamic>),
+  subReportCount: (json['subReportCount'] as num?)?.toInt() ?? 0,
+  subReports:
+      (json['subReports'] as List<dynamic>?)
+          ?.map((e) => SubReportModel.fromJson(e as Map<String, dynamic>))
+          .toList() ??
+      const [],
 );
 
 Map<String, dynamic> _$ReportModelToJson(ReportModel instance) =>
@@ -35,6 +43,8 @@ Map<String, dynamic> _$ReportModelToJson(ReportModel instance) =>
       'title': instance.title,
       'description': instance.description,
       'category': instance.category,
+      'evidenceType': instance.evidenceType,
+      'status': instance.status,
       'upvoteCount': instance.upvoteCount,
       'downvoteCount': instance.downvoteCount,
       'commentCount': instance.commentCount,
@@ -45,6 +55,8 @@ Map<String, dynamic> _$ReportModelToJson(ReportModel instance) =>
       'authorName': instance.authorName,
       'authorImageUrl': instance.authorImageUrl,
       'location': instance.location?.toJson(),
+      'subReportCount': instance.subReportCount,
+      'subReports': instance.subReports.map((e) => e.toJson()).toList(),
     };
 
 LocationModel _$LocationModelFromJson(Map<String, dynamic> json) =>

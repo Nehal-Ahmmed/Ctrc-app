@@ -12,6 +12,7 @@ import '../../data/datasources/report_remote_datasource.dart';
 import '../../domain/models/comment_model.dart';
 import '../../domain/models/report_category.dart';
 import '../../domain/models/report_model.dart';
+import '../../domain/models/sub_report_model.dart';
 import '../../domain/services/vote_toggle.dart';
 import '../widgets/create_report_bottom_sheet.dart';
 
@@ -305,6 +306,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
                       _buildHeader(report),
                       if (report.location != null) _buildMapPreview(report),
                       _buildActions(report),
+                      _buildUpdates(report),
                       _buildComments(),
                     ],
                   ),
@@ -553,6 +555,192 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
               report.isSaved ? Icons.bookmark : Icons.bookmark_border,
               color: report.isSaved ? const Color(0xFF1A73E8) : Colors.grey[700],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The incident thread: every report that was linked to this one.
+  ///
+  /// Linking has been possible since the create sheet learned to offer it, but
+  /// until now the resulting sub-reports were write-only — filed and then
+  /// invisible. This is where they surface.
+  Widget _buildUpdates(ReportModel report) {
+    final updates = report.subReports;
+
+    return Container(
+      color: Colors.white,
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.link, size: 18, color: Color(0xFF1A73E8)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  updates.isEmpty
+                      ? 'Updates'
+                      : 'Updates (${updates.length})',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _addUpdate,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add'),
+              ),
+            ],
+          ),
+          // A card hands us the report it already had, whose thread is not
+          // loaded yet. Saying "nobody has linked anything" there would be
+          // wrong, so wait for the authoritative copy before claiming that.
+          if (updates.isEmpty && report.subReportCount > 0)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            )
+          else if (updates.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 12),
+              child: Text(
+                'Nobody has linked a report to this incident yet. If you are '
+                'there too, add what you can see.',
+                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+              ),
+            )
+          else ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 10),
+              child: Text(
+                '${report.incidentSize} people reported this incident.',
+                style: TextStyle(fontSize: 12.5, color: Colors.grey[600]),
+              ),
+            ),
+            ...updates.map(_buildUpdateTile),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUpdateTile(SubReportModel update) {
+    final hasAvatar =
+        update.authorImageUrl != null && update.authorImageUrl!.isNotEmpty;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // A rail down the left edge reads as a thread hanging off the parent.
+          Column(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: Colors.blue[50],
+                backgroundImage:
+                    hasAvatar ? NetworkImage(update.authorImageUrl!) : null,
+                child: !hasAvatar
+                    ? const Icon(Icons.person, size: 18, color: Color(0xFF1A73E8))
+                    : null,
+              ),
+              Container(
+                width: 2,
+                height: 22,
+                margin: const EdgeInsets.only(top: 4),
+                color: Colors.grey[200],
+              ),
+            ],
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  (update.authorName != null && update.authorName!.isNotEmpty)
+                      ? update.authorName!
+                      : 'User #${update.userId}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    if (update.createdAt != null)
+                      formatRelativeTime(update.createdAt),
+                    // Computed by MySQL with ST_Distance_Sphere at insert time.
+                    if (update.distFromParent != null)
+                      '${GeoUtils.formatDistance(update.distFromParent!)} from the report',
+                  ].join(' · '),
+                  style: TextStyle(fontSize: 11.5, color: Colors.grey[600]),
+                ),
+                if (update.description != null &&
+                    update.description!.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    update.description!,
+                    style: const TextStyle(fontSize: 14, height: 1.35),
+                  ),
+                ],
+                if (update.upvoteCount > 0 ||
+                    update.downvoteCount > 0 ||
+                    update.commentCount > 0) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      _buildUpdateStat(
+                        Icons.arrow_upward,
+                        update.upvoteCount,
+                      ),
+                      _buildUpdateStat(
+                        Icons.arrow_downward,
+                        update.downvoteCount,
+                      ),
+                      _buildUpdateStat(
+                        Icons.comment_outlined,
+                        update.commentCount,
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Read-only tallies. Voting and commenting on an individual update needs the
+  /// dual-FK write path, which the backend does not expose yet.
+  Widget _buildUpdateStat(IconData icon, int count) {
+    if (count == 0) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(right: 14),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.grey[600]),
+          const SizedBox(width: 4),
+          Text(
+            '$count',
+            style: TextStyle(fontSize: 12, color: Colors.grey[700]),
           ),
         ],
       ),

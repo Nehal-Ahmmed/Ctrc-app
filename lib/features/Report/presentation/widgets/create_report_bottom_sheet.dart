@@ -56,6 +56,11 @@ class _CreateReportBottomSheetState
   final GeocodingDataSource _geocoder = GeocodingDataSource();
 
   String _category = ReportCategory.trafficJam.label;
+
+  /// How the reporter knows: `seen`, `heard` or `guessed`. The backend needs
+  /// more upvotes before it will call a weakly evidenced report verified.
+  String _evidence = 'seen';
+
   bool _isLoading = false;
 
   /// Resolved once when the sheet opens so the report carries a street name
@@ -92,6 +97,13 @@ class _CreateReportBottomSheetState
   }
 
   bool get _isSubReport => _linkedParentId != null;
+
+  /// Someone who is only guessing cannot say what the incident is, so the
+  /// category is filed as Unknown and left for a witness to correct.
+  bool get _isGuess => _evidence == 'guessed';
+
+  String get _submittedCategory =>
+      _isGuess ? ReportCategory.unknown.label : _category;
 
   LatLng get _point => LatLng(widget.latitude, widget.longitude);
 
@@ -184,7 +196,8 @@ class _CreateReportBottomSheetState
             ? 'Update'
             : _titleController.text.trim(),
         description: _descriptionController.text.trim(),
-        category: parentReportId != null ? 'Sub-report' : _category,
+        category: _submittedCategory,
+        evidenceType: _evidence,
         parentReportId: parentReportId,
         address: _resolvedAddress,
       );
@@ -254,13 +267,42 @@ class _CreateReportBottomSheetState
                       : null,
                 ),
                 const SizedBox(height: 16),
+              ],
+              DropdownButtonFormField<String>(
+                initialValue: _evidence,
+                decoration: const InputDecoration(
+                  labelText: 'How do you know about this?',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'seen',
+                    child: Text('I saw it myself'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'heard',
+                    child: Text('Someone told me'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'guessed',
+                    child: Text('I am guessing from the traffic'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value != null) setState(() => _evidence = value);
+                },
+              ),
+              const SizedBox(height: 16),
+              if (_isGuess)
+                _buildUnknownCategoryNote()
+              else
                 DropdownButtonFormField<String>(
                   initialValue: _category,
                   decoration: InputDecoration(
                     labelText: strings.categoryLabel,
                     border: const OutlineInputBorder(),
                   ),
-                  items: ReportCategory.values
+                  items: ReportCategory.selectable
                       .map(
                         (category) => DropdownMenuItem(
                           value: category.label,
@@ -279,8 +321,7 @@ class _CreateReportBottomSheetState
                     if (value != null) setState(() => _category = value);
                   },
                 ),
-                const SizedBox(height: 16),
-              ],
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _descriptionController,
                 textCapitalization: TextCapitalization.sentences,
@@ -357,6 +398,29 @@ class _CreateReportBottomSheetState
               style: const TextStyle(fontSize: 12.5),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnknownCategoryNote() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.grey.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.help_outline, size: 18, color: Colors.grey[700]),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Filed as "Unknown". Someone who actually sees what happened '
+              'can name it later.',
+              style: TextStyle(fontSize: 12.5, color: Colors.grey[800]),
             ),
           ),
         ],

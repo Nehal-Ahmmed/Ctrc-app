@@ -14,7 +14,12 @@ enum ReportCategory {
   fire('Fire', Icons.local_fire_department, Color(0xFFD93025)),
   robbery('Robbery', Icons.money_off, Color(0xFF8430CE)),
   riot('Riot', Icons.groups, Color(0xFFD93025)),
-  other('Other', Icons.more_horiz, Color(0xFF5F6368));
+  other('Other', Icons.more_horiz, Color(0xFF5F6368)),
+
+  /// Something is clearly wrong but the reporter could not see what. Set
+  /// automatically when the evidence is "I am only guessing", and replaced by
+  /// a db trigger once somebody who actually saw the incident files an update.
+  unknown('Unknown', Icons.help_outline, Color(0xFF5F6368));
 
   const ReportCategory(this.label, this.icon, this.color);
 
@@ -25,9 +30,13 @@ enum ReportCategory {
 
   static const String allLabel = 'All';
 
+  /// Categories a reporter can pick by hand. `Unknown` is left out because it
+  /// is only ever set for them.
+  static List<ReportCategory> get selectable =>
+      ReportCategory.values.where((c) => c != ReportCategory.unknown).toList();
+
   /// Labels for the create-report picker.
-  static List<String> get labels =>
-      ReportCategory.values.map((c) => c.label).toList();
+  static List<String> get labels => selectable.map((c) => c.label).toList();
 
   /// Labels for the feed filter, with the "All" option in front.
   static List<String> get filterLabels => [allLabel, ...labels];
