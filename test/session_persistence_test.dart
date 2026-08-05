@@ -17,8 +17,6 @@ const _user = UserModel(
   password: 'hunter2',
 );
 
-/// Signs in fine, but the backend is unreachable — the case a stored session
-/// exists precisely for.
 class _OfflineRemote implements AuthRemoteDataSource {
   int currentUserCalls = 0;
 
@@ -34,8 +32,6 @@ class _OfflineRemote implements AuthRemoteDataSource {
   @override
   Future<bool> checkHealth() async => false;
 
-  /// Mirrors the real datasource, which is where a freshly issued token is
-  /// written — it is the only layer that ever sees one.
   @override
   Future<UserModel> signIn({
     required String email,
@@ -79,8 +75,6 @@ class _OfflineRemote implements AuthRemoteDataSource {
       throw UnimplementedError();
 }
 
-/// The backend refuses the stored token: the one failure that must end a
-/// session rather than ride it out.
 class _RejectingRemote extends _OfflineRemote {
   @override
   Future<UserModel> getCurrentUser() async {
@@ -89,7 +83,6 @@ class _RejectingRemote extends _OfflineRemote {
   }
 }
 
-/// Stands in for a device that already has a session on it.
 void _seedSession(LocalStore store) {
   store.setString(StorageKeys.authToken, 'stored-token');
   store.setStamped(StorageKeys.authUser, {
@@ -129,7 +122,7 @@ void main() {
       store.setString('broken', '{not json');
 
       expect(store.getJson('broken'), isNull);
-      // And the bad entry is gone, so it cannot fail twice.
+      
       expect(store.getString('broken'), isNull);
     });
 
@@ -204,7 +197,6 @@ void main() {
       final remote = _OfflineRemote();
       final container = _containerWith(remote);
 
-      // Read once, without letting the revalidation complete.
       container.read(authProvider);
 
       final state = container.read(authProvider);
@@ -223,7 +215,7 @@ void main() {
       expect(remote.currentUserCalls, 1);
       expect(container.read(isAuthenticatedProvider), isTrue);
       expect(container.read(authProvider).isRevalidating, isFalse);
-      // The session is still on the device for the next launch.
+      
       expect(AuthLocalDataSourceImpl().readSession(), isNotNull);
     });
 
@@ -305,7 +297,7 @@ void main() {
       final cached = cache.read(ReportLocalCache.feedBucket)!;
       expect(cached.reports.single.isSaved, isFalse);
       expect(cached.reports.single.userVoteType, isNull);
-      // Everything public about the incident is untouched.
+      
       expect(cached.reports.single.upvoteCount, 4);
     });
 

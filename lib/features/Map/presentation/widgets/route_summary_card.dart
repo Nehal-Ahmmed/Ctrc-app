@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../domain/models/route_models.dart';
 
-/// Bottom card shown while a route is drawn: distance, time, road status and
-/// a shortcut into the list of incidents beside the road.
 class RouteSummaryCard extends StatelessWidget {
   final RouteAnalysis analysis;
   final VoidCallback onShowAlerts;

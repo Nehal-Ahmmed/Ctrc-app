@@ -2,14 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/settings_provider.dart';
 
-/// User-facing text, in the language picked in Settings.
-///
-/// The Language setting used to be saved and then ignored — nothing in the app
-/// read it. Widgets now take their labels from here via [appStringsProvider].
-///
-/// Incident *category* names are deliberately not translated: those exact
-/// strings are the values stored in the database and matched by the feed
-/// filter, so translating them would break filtering.
 abstract class AppStrings {
   const AppStrings();
 
@@ -18,11 +10,9 @@ abstract class AppStrings {
   static AppStrings of(String languageCode) =>
       languageCode == 'bn' ? const BanglaStrings() : const EnglishStrings();
 
-  /// Name of a language in its own script, for the Settings dropdown.
   static String languageName(String code) =>
       code == 'bn' ? 'বাংলা (Bangla)' : 'English';
 
-  // --- chrome ---------------------------------------------------------------
   String get appTitle;
   String get drawerHeadline;
   String get navHome;
@@ -31,7 +21,6 @@ abstract class AppStrings {
   String get notifications;
   String get settings;
 
-  // --- shared actions -------------------------------------------------------
   String get logIn;
   String get signUp;
   String get signOut;
@@ -44,14 +33,12 @@ abstract class AppStrings {
   String get refresh;
   String get retry;
 
-  // --- drawer ---------------------------------------------------------------
   String get myReports;
   String get savedPosts;
   String get mapSection;
   String get alertRadius;
   String get unknownLocation;
 
-  // --- home feed ------------------------------------------------------------
   String get whatsHappeningNearby;
   String get categoryAll;
   String get waitingForGps;
@@ -61,7 +48,6 @@ abstract class AppStrings {
   String noIncidentsWithin(int km);
   String noCategoryIncidentsWithin(String category, int km);
 
-  // --- feed filter & sort ---------------------------------------------------
   String get filterAndSort;
   String get sortBy;
   String get showOnly;
@@ -92,10 +78,8 @@ abstract class AppStrings {
   String get withPhotoOnly;
   String get noMatchingReports;
 
-  /// Shown when the feed on screen came off the device, not the backend.
   String get showingSavedReports;
 
-  // --- reports --------------------------------------------------------------
   String get reportDetails;
   String get reportNewIncident;
   String get addToThisIncident;
@@ -111,7 +95,6 @@ abstract class AppStrings {
   String get savePost;
   String get removeFromSaved;
 
-  // --- settings -------------------------------------------------------------
   String get accountAndSecurity;
   String get editProfile;
   String get changePassword;
@@ -131,7 +114,6 @@ abstract class AppStrings {
   String get privacyPolicy;
   String get appVersion;
 
-  // --- profile --------------------------------------------------------------
   String get profileInfo;
   String get name;
   String get email;
@@ -139,7 +121,6 @@ abstract class AppStrings {
   String get noAddressSpecified;
   String get signInToViewProfile;
 
-  // --- auth -----------------------------------------------------------------
   String get welcomeBack;
   String get signInToYourAccount;
   String get password;
@@ -148,7 +129,6 @@ abstract class AppStrings {
   String get alreadyHaveAnAccount;
   String get createAccount;
 
-  // --- notifications --------------------------------------------------------
   String get markAllRead;
   String get clearAll;
   String get noNotificationsYet;
@@ -631,7 +611,6 @@ class BanglaStrings extends AppStrings {
       'এখনো কোনো সতর্কতা নেই।\nআপনার কাছাকাছি নতুন ঘটনা রিপোর্ট হলে জানানো হবে।';
 }
 
-/// Strings for the currently selected language.
 final appStringsProvider = Provider<AppStrings>((ref) {
   final code = ref.watch(settingsProvider.select((s) => s.languageCode));
   return AppStrings.of(code);

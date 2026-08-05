@@ -12,8 +12,6 @@ const _user = UserModel(
   password: '',
 );
 
-/// In-memory stand-in: starts signed in, and records whether the token was
-/// actually asked to go away.
 class _FakeAuthRemoteDataSource implements AuthRemoteDataSource {
   bool hasToken;
   bool failSignOut;
@@ -86,7 +84,6 @@ ProviderContainer _containerWith(AuthRemoteDataSource dataSource) {
   return container;
 }
 
-/// Waits for [AuthNotifier]'s constructor-time session restore to land.
 Future<void> _settle(ProviderContainer container) async {
   container.read(authProvider);
   await Future<void>.delayed(Duration.zero);
@@ -103,7 +100,6 @@ void main() {
     test('clearUser is the only way to empty the session', () {
       const state = AuthState(status: AuthStatus.authenticated, user: _user);
 
-      // `user: null` reads as "leave unchanged", which is why the flag exists.
       expect(state.copyWith(user: null).user, _user);
       expect(state.copyWith(clearUser: true).user, isNull);
     });
@@ -175,7 +171,7 @@ void main() {
 
       expect(guest.isSaved, isFalse);
       expect(guest.userVoteType, isNull);
-      // Everything public about the incident is untouched.
+      
       expect(guest.upvoteCount, 4);
       expect(guest.commentCount, 2);
       expect(guest.title, 'Waterlogging');

@@ -1,10 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// The single list of incident categories used across the app.
-///
-/// The create sheet and the feed filter used to carry two different hand-written
-/// lists, so a report filed as "Road Condition" could never be found by the
-/// "Road block" chip. Everything now reads from here.
 enum ReportCategory {
   trafficJam('Traffic jam', Icons.traffic, Color(0xFFE8710A)),
   accident('Accident', Icons.car_crash, Color(0xFFD93025)),
@@ -16,33 +11,23 @@ enum ReportCategory {
   riot('Riot', Icons.groups, Color(0xFFD93025)),
   other('Other', Icons.more_horiz, Color(0xFF5F6368)),
 
-  /// Something is clearly wrong but the reporter could not see what. Set
-  /// automatically when the evidence is "I am only guessing", and replaced by
-  /// a db trigger once somebody who actually saw the incident files an update.
   unknown('Unknown', Icons.help_outline, Color(0xFF5F6368));
 
   const ReportCategory(this.label, this.icon, this.color);
 
-  /// The exact string sent to and stored by the backend.
   final String label;
   final IconData icon;
   final Color color;
 
   static const String allLabel = 'All';
 
-  /// Categories a reporter can pick by hand. `Unknown` is left out because it
-  /// is only ever set for them.
   static List<ReportCategory> get selectable =>
       ReportCategory.values.where((c) => c != ReportCategory.unknown).toList();
 
-  /// Labels for the create-report picker.
   static List<String> get labels => selectable.map((c) => c.label).toList();
 
-  /// Labels for the feed filter, with the "All" option in front.
   static List<String> get filterLabels => [allLabel, ...labels];
 
-  /// Best-effort lookup so reports stored under older wording ("Traffic",
-  /// "Road Condition", seeded rows) still resolve to an icon and colour.
   static ReportCategory fromLabel(String? raw) {
     if (raw == null || raw.trim().isEmpty) return ReportCategory.other;
     final needle = raw.trim().toLowerCase();

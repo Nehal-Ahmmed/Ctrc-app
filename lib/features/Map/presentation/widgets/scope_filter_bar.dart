@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../domain/models/map_scope.dart';
 
-/// The horizontal option bar under the search field. Picking an option decides
-/// both the blue radius drawn around the pointer and which alerts are loaded.
 class ScopeFilterBar extends StatelessWidget {
   final MapScope selected;
   final ValueChanged<MapScope> onSelected;

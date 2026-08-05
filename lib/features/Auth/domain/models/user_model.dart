@@ -3,26 +3,26 @@ class UserModel {
   final String email;
   final String name;
   final String password;
-  final String? image_url; // Optional — null if not provided at signup
-  final String? address;   // Optional — null if not provided at signup
+  final String? image_url; 
+  final String? address;   
 
   const UserModel({
     required this.user_id,
     required this.email,
     required this.name,
     this.image_url,
-    this.address,    // nullable
+    this.address,    
     required this.password,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
     return UserModel(
-      user_id: json['id']?.toString() ?? '', // Backend sends 'id' as a number
+      user_id: json['id']?.toString() ?? '', 
       email: json['email'] as String? ?? '',
       name: json['name'] as String? ?? '',
-      image_url: json['imageUrl'] as String?, // Backend sends 'imageUrl'
+      image_url: json['imageUrl'] as String?, 
       address: json['address'] as String?,
-      password: json['password'] as String? ?? '', // password won't be in response
+      password: json['password'] as String? ?? '', 
     );
   }
 

@@ -1,35 +1,19 @@
-import 'comment_model.dart';
+import '../../../../core/utils/app_time.dart';
 import 'report_model.dart';
 
-/// An update filed against an existing incident.
-///
-/// This is the read side of the "link to an existing incident" flow: choosing
-/// to link creates a `sub_report` row, and these are what the detail page
-/// renders underneath the parent report.
-///
-/// Hand-written rather than generated for the same reason as [CommentModel] —
-/// timestamps arrive as either epoch millis or an ISO string.
 class SubReportModel {
   final int subReportId;
   final int userId;
 
-  /// The incident this update belongs to.
   final int reportId;
   final String? description;
 
-  /// How this reporter knew: `seen`, `heard` or `guessed`.
   final String evidenceType;
 
-  /// What this reporter thinks the incident is. When somebody who actually
-  /// saw it files an update, a database trigger copies this onto a parent
-  /// still sitting at `Unknown`.
   final String? category;
 
-  /// Photo attached to this update, hosted on Cloudinary.
   final String? imageUrl;
 
-  /// Straight-line distance from the parent report, computed by MySQL with
-  /// `ST_Distance_Sphere` when the row is inserted.
   final double? distFromParent;
 
   final int upvoteCount;
@@ -40,6 +24,9 @@ class SubReportModel {
   final String? authorName;
   final String? authorImageUrl;
   final LocationModel? location;
+
+  final String? userVoteType;
+  final String? parentTitle;
 
   const SubReportModel({
     required this.subReportId,
@@ -57,6 +44,8 @@ class SubReportModel {
     this.authorName,
     this.authorImageUrl,
     this.location,
+    this.userVoteType,
+    this.parentTitle,
   });
 
   factory SubReportModel.fromJson(Map<String, dynamic> json) {
@@ -75,9 +64,7 @@ class SubReportModel {
       downvoteCount:
           _asInt(json['downvoteCount'] ?? json['downvote_count']) ?? 0,
       commentCount: _asInt(json['commentCount'] ?? json['comment_count']) ?? 0,
-      createdAt: CommentModel.parseTimestamp(
-        json['createdAt'] ?? json['created_at'],
-      ),
+      createdAt: AppTime.parseTimestamp(json['createdAt'] ?? json['created_at']),
       authorName: (json['authorName'] ?? json['author_name']) as String?,
       authorImageUrl:
           (json['authorImageUrl'] ?? json['author_image_url']) as String?,
@@ -86,6 +73,8 @@ class SubReportModel {
               Map<String, dynamic>.from(json['location'] as Map),
             )
           : null,
+      userVoteType: (json['userVoteType'] ?? json['user_vote_type']) as String?,
+      parentTitle: (json['parentTitle'] ?? json['parent_title']) as String?,
     );
   }
 
@@ -105,6 +94,8 @@ class SubReportModel {
         'authorName': authorName,
         'authorImageUrl': authorImageUrl,
         'location': location?.toJson(),
+        'userVoteType': userVoteType,
+        'parentTitle': parentTitle,
       };
 
   static int? _asInt(dynamic value) {

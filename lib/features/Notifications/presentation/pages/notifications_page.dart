@@ -6,7 +6,7 @@ import '../../../../core/l10n/app_strings.dart';
 import '../../../../core/providers/settings_provider.dart';
 import '../../../../core/widgets/sub_page_app_bar.dart';
 import '../../../Map/domain/utils/geo_utils.dart';
-import '../../../Report/domain/models/comment_model.dart';
+import '../../../../core/utils/app_time.dart';
 import '../../domain/models/app_notification.dart';
 import '../providers/notification_provider.dart';
 
@@ -182,7 +182,7 @@ class NotificationsPage extends ConsumerWidget {
                 category.label,
                 if (notification.distanceMeters != null)
                   '${GeoUtils.formatDistance(notification.distanceMeters!)} away',
-                formatRelativeTime(notification.receivedAt),
+                AppTime.formatRelativeTime(notification.receivedAt),
               ].join(' · '),
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),

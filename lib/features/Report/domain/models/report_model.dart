@@ -1,12 +1,7 @@
 import 'comment_model.dart';
+import '../../../../core/utils/app_time.dart';
 import 'sub_report_model.dart';
 
-/// A report as the feed and the detail page read it.
-///
-/// Hand-written rather than generated, for the same reason as [CommentModel]
-/// and [SubReportModel]: the timestamps arrive as either epoch millis or an
-/// ISO-8601 string depending on how the backend serialises them, and generated
-/// code would cast them straight to `String` and throw on the numeric form.
 class ReportModel {
   final int reportId;
   final int userId;
@@ -15,16 +10,10 @@ class ReportModel {
   final String? description;
   final String category;
 
-  /// How the reporter knew about the incident: `seen`, `heard` or `guessed`.
-  /// Weaker evidence needs more upvotes before the report counts as verified.
   final String evidenceType;
 
-  /// `unverified`, `verified` or `disputed`. Worked out by a database trigger
-  /// every time a vote lands, never set by the app.
   final String status;
 
-  /// Photo of the incident, hosted on Cloudinary. Null when the reporter did
-  /// not attach one.
   final String? imageUrl;
 
   final int upvoteCount;
@@ -33,25 +22,17 @@ class ReportModel {
   final String? expiresAt;
   final String? createdAt;
 
-  /// Null until the author edits the report, which is what the "edited" mark
-  /// on a card is reading.
   final String? updatedAt;
 
   final bool isSaved;
   final String? userVoteType;
 
-  /// Reporter's display name / avatar, joined server side so a report can be
-  /// rendered without a second lookup.
   final String? authorName;
   final String? authorImageUrl;
   final LocationModel? location;
 
-  /// How many updates were linked to this incident. Returned by every list
-  /// read so a card can show the badge without loading the thread.
   final int subReportCount;
 
-  /// The updates themselves. Only the single-report endpoint fills this in;
-  /// elsewhere it is empty and [subReportCount] is the thing to trust.
   final List<SubReportModel> subReports;
 
   ReportModel({
@@ -79,8 +60,6 @@ class ReportModel {
     this.subReports = const [],
   });
 
-  /// Total voices on this incident: the original report plus every linked
-  /// update. What the UI means by "3 people reported this".
   int get incidentSize => 1 + (subReports.isNotEmpty
       ? subReports.length
       : subReportCount);
@@ -103,8 +82,7 @@ class ReportModel {
     String? updatedAt,
     bool? isSaved,
     String? userVoteType,
-    // `userVoteType: null` cannot express "clear the vote" because null also
-    // means "leave unchanged", so un-voting sets this flag instead.
+    
     bool clearUserVoteType = false,
     String? authorName,
     String? authorImageUrl,
@@ -139,12 +117,6 @@ class ReportModel {
     );
   }
 
-  /// The same incident with everything that belonged to the previous viewer
-  /// stripped off.
-  ///
-  /// Saves and votes are per-account, so a cached card must forget them the
-  /// moment the signed-in identity changes — otherwise one person's bookmark
-  /// stays lit under the next person's session, or under no session at all.
   ReportModel withoutViewerState() =>
       copyWith(isSaved: false, clearUserVoteType: true);
 
@@ -215,17 +187,10 @@ class ReportModel {
     return int.tryParse('$value');
   }
 
-  /// Timestamps stay strings on this model, but everything downstream reads
-  /// them with `DateTime.tryParse`, so an epoch number is normalised to ISO
-  /// here instead of being stringified into something unparseable.
-  ///
-  /// The epoch form is written back out in UTC, so it carries a `Z`. That
-  /// keeps one rule for every reader: a timestamp with no zone on it came
-  /// straight from the backend's `LocalDateTime` and is therefore server time.
   static String? _asTimestamp(dynamic value) {
     if (value == null) return null;
-    if (value is String) return value.isEmpty ? null : value;
-    return CommentModel.parseTimestamp(value)?.toUtc().toIso8601String();
+    if (value is String && value.isEmpty) return null;
+    return AppTime.parseTimestamp(value)?.toIso8601String();
   }
 
   static List<SubReportModel> _asSubReports(dynamic value) {

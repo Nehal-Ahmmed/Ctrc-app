@@ -2,12 +2,6 @@ import 'package:dio/dio.dart';
 import '../../domain/models/user_model.dart';
 import 'auth_local_datasource.dart';
 
-/// The session on this device is over: the token was refused, or there is not
-/// one to send.
-///
-/// Every other failure — no signal, a backend still waking up — leaves the
-/// stored session alone, so this is thrown only when the app genuinely has to
-/// let go of it.
 class SessionExpiredException implements Exception {
   const SessionExpiredException([
     this.message = 'Your session has ended. Please sign in again.',
@@ -19,7 +13,6 @@ class SessionExpiredException implements Exception {
   String toString() => message;
 }
 
-/// Abstract class for remote authentication data source
 abstract class AuthRemoteDataSource {
   Future<bool> checkHealth();
 
@@ -29,8 +22,8 @@ abstract class AuthRemoteDataSource {
     required String email,
     required String password,
     required String name,
-    String? address, // Optional — null by default
-    String? image_url, // Optional — null by default
+    String? address, 
+    String? image_url, 
   });
 
   Future<UserModel> getCurrentUser();
@@ -57,16 +50,13 @@ abstract class AuthRemoteDataSource {
 class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
   final Dio dio;
 
-  /// Where the token lands the moment the backend issues one. The profile that
-  /// comes back with it is stored by the repository, which is the only layer
-  /// that sees both halves of a session.
   final AuthLocalDataSource localDataSource;
 
   AuthRemoteDataSourceImpl({
     Dio? dio,
     AuthLocalDataSource? localDataSource,
     String baseUrl =
-        'https://ctrc-backend.onrender.com', // Use deployed Render backend
+        'https://ctrc-backend.onrender.com', 
   })  : localDataSource = localDataSource ?? AuthLocalDataSourceImpl(),
         dio =
            dio ??
@@ -110,11 +100,9 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.statusCode == 200) {
         final data = response.data;
-        // Remembered until sign-out; every later launch reuses it instead of
-        // asking for the password again.
+        
         await localDataSource.saveToken(data['data']['token'] as String);
 
-        // Backend returns ApiResponse<AuthResponse>: { success, data: {token: ..., user: {...}}, message }
         return UserModel.fromJson(data['data']['user'] as Map<String, dynamic>);
       } else {
         throw Exception(
@@ -132,8 +120,8 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     required String email,
     required String password,
     required String name,
-    String? address, // Optional — null by default
-    String? image_url, // Optional — null by default
+    String? address, 
+    String? image_url, 
   }) async {
     try {
       final response = await dio.post(
@@ -142,8 +130,8 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
           'name': name,
           'email': email,
           'password': password,
-          'confirmPassword': password, // default confirmation match
-          // Only include address & imageUrl if non-null; backend treats missing/null as NULL
+          'confirmPassword': password, 
+          
           if (address != null) 'address': address,
           if (image_url != null) 'imageUrl': image_url,
         },
@@ -151,7 +139,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
       if (response.statusCode == 201) {
         final data = response.data;
-        // A fresh account is signed in from here on, same as a fresh sign-in.
+        
         await localDataSource.saveToken(data['data']['token'] as String);
 
         return UserModel.fromJson(data['data']['user'] as Map<String, dynamic>);
@@ -189,9 +177,6 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
     } on DioException catch (e) {
       final status = e.response?.statusCode;
 
-      // Only the server actually refusing the token ends the session. Anything
-      // else — no signal, a timeout, the free tier still waking up — is a
-      // reason to try again later, not to sign somebody out.
       if (status == 401 || status == 403) {
         throw SessionExpiredException(
           _extractErrorMessage(e.response?.data) ??
@@ -211,7 +196,7 @@ class AuthRemoteDataSourceImpl implements AuthRemoteDataSource {
 
   @override
   Future<void> resetPassword(String email) async {
-    // Reset password simulation
+    
     await Future.delayed(const Duration(milliseconds: 300));
   }
 

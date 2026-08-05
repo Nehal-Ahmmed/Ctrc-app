@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/widgets/sub_page_app_bar.dart';
 import '../providers/auth_provider.dart';
 
-/// Reached from the "Forgot Password?" link on the sign-in page.
 class ForgotPasswordPage extends ConsumerStatefulWidget {
   const ForgotPasswordPage({super.key});
 

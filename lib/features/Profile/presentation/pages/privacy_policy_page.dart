@@ -2,11 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/widgets/sub_page_app_bar.dart';
 
-/// Settings › Privacy Policy, previously an empty `onTap`.
-///
-/// The text below describes what this app actually does today — location used
-/// for nearby lookups, reports stored with their coordinates, avatars on
-/// Cloudinary — rather than boilerplate.
 class PrivacyPolicyPage extends StatelessWidget {
   const PrivacyPolicyPage({super.key});
 

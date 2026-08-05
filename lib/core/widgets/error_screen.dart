@@ -1,24 +1,15 @@
 import 'package:flutter/material.dart';
 
-/// The calm thing that sits where a widget failed to build.
-///
-/// Flutter's default is a red box full of framework text (grey in release),
-/// which is the single ugliest thing a user can be shown. This keeps the same
-/// job — occupy the broken widget's slot — while looking like part of the app.
-/// In debug builds the real exception text is kept underneath so the failure is
-/// still diagnosable at a glance.
 class ErrorScreen extends StatelessWidget {
   const ErrorScreen({super.key, required this.message, this.detail});
 
   final String message;
 
-  /// Raw exception text. Only pass this in debug builds.
   final String? detail;
 
   @override
   Widget build(BuildContext context) {
-    // ErrorWidget.builder can run before (or after) there is a Theme or
-    // Directionality in scope, so nothing here may assume an inherited widget.
+    
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Container(

@@ -3,12 +3,7 @@ import '../../../../core/errors/failures.dart';
 import '../models/user_model.dart';
 
 abstract class AuthRepository {
-  /// Who this device last had signed in, read straight off local storage.
-  ///
-  /// Synchronous and network-free by design: the app decides whether it is
-  /// opening as a signed-in person before it paints anything, so there is no
-  /// spinner and no signed-out flash on launch. [getCurrentUser] is what
-  /// confirms it afterwards.
+  
   UserModel? cachedUser();
 
   Future<Either<Failure, UserModel>> signIn({
@@ -20,8 +15,8 @@ abstract class AuthRepository {
     required String email,
     required String password,
     required String name,
-    String? address,    // Optional — null by default
-    String? image_url,  // Optional — null by default
+    String? address,    
+    String? image_url,  
   });
 
   Future<Either<Failure, UserModel>> getCurrentUser();

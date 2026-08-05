@@ -2,11 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-/// Google-Maps style "you are here" pointer: a blue dot with a white ring and
-/// a translucent cone showing which way the device is facing.
-///
-/// [headingDegrees] is clockwise from north; pass `null` while the heading is
-/// unknown and only the dot is drawn.
 class LiveLocationPointer extends StatelessWidget {
   final double? headingDegrees;
   final bool isStale;
@@ -74,7 +69,6 @@ class _HeadingConePainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
 
-    // 60° wide beam pointing "up" (north) before the parent rotation.
     const sweep = 60 * math.pi / 180;
     const start = -math.pi / 2 - sweep / 2;
 
@@ -100,7 +94,6 @@ class _HeadingConePainter extends CustomPainter {
       oldDelegate.color != color;
 }
 
-/// The pin dropped on a searched place, mirroring Google's red marker.
 class SearchedPlaceMarker extends StatelessWidget {
   const SearchedPlaceMarker({super.key});
 

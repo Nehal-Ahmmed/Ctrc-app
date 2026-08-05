@@ -7,29 +7,26 @@ import '../../../../core/errors/app_error.dart';
 import '../../../../core/l10n/app_strings.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/widgets/sub_page_app_bar.dart';
+import '../../../../core/utils/app_time.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 import '../../../Map/domain/services/incident_severity.dart';
 import '../../../Map/domain/utils/geo_utils.dart';
+import '../../data/datasources/report_local_cache.dart';
 import '../../data/datasources/report_remote_datasource.dart';
 import '../../domain/models/comment_model.dart';
 import '../../domain/models/report_category.dart';
 import '../../domain/models/report_model.dart';
 import '../../domain/models/sub_report_model.dart';
 import '../../domain/services/vote_toggle.dart';
+import '../widgets/comment_vote_bar.dart';
 import '../widgets/create_report_bottom_sheet.dart';
+import 'package:go_router/go_router.dart';
 
-/// Full detail view for a single incident report.
-///
-/// This is what an alert opens into — from the map's area alerts, the route
-/// alerts, or anywhere else a report is listed.
 class ReportDetailsPage extends ConsumerStatefulWidget {
   final int reportId;
 
-  /// Optional pre-fetched report so the page can render instantly while the
-  /// authoritative copy loads.
   final ReportModel? initialReport;
 
-  /// Where the viewer is, used only for the "x km away" line.
   final LatLng? viewerLocation;
 
   const ReportDetailsPage({
@@ -49,7 +46,6 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _commentFocus = FocusNode();
 
-  /// Anchors the "jump to comments" action on the comment counter.
   final GlobalKey _commentsKey = GlobalKey();
 
   ReportModel? _report;
@@ -75,8 +71,6 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     super.dispose();
   }
 
-  /// Scrolls the comment thread into view and drops the caret in the composer,
-  /// which is what tapping the comment counter should have done all along.
   void _jumpToComments() {
     final target = _commentsKey.currentContext;
     if (target != null) {
@@ -96,8 +90,6 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     _commentFocus.requestFocus();
   }
 
-  /// Files a sub-report against this incident — the other half of the
-  /// link-or-create flow, reached from an incident you are already looking at.
   Future<void> _addUpdate() async {
     final report = _report;
     if (report == null) return;
@@ -132,9 +124,6 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     await _load();
   }
 
-  /// Reopens the create sheet with this report's details filled in, so saving
-  /// overwrites the original instead of filing a second one. Where the report
-  /// was pinned is not editable — people voted on an incident at that spot.
   Future<void> _editReport() async {
     final report = _report;
     if (report == null) return;
@@ -164,6 +153,47 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     await _load();
   }
 
+  Future<void> _deleteReport() async {
+    final report = _report;
+    if (report == null) return;
+    if (!_requireLogin('delete your report')) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Report'),
+        content: const Text('Are you sure you want to delete this report?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(ref.watch(appStringsProvider).cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    try {
+      await _dataSource.deleteReport(
+        reportId: report.reportId,
+        userId: _currentUserId!,
+      );
+      ReportLocalCache().evictReport(report.reportId, userId: _currentUserId?.toString());
+      if (!mounted) return;
+      AppToast.success(context, 'Report deleted successfully');
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      AppToast.error(context, e, title: 'Could not delete report');
+    }
+  }
+
   void _notify(String message) => AppToast.success(context, message);
 
   Future<void> _load() async {
@@ -186,8 +216,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
       if (!mounted) return;
       setState(() {
         _isLoadingReport = false;
-        // Keep whatever we were handed; only surface the error if we have
-        // nothing at all to show.
+        
         if (_report == null) _error = AppError.messageOf(e);
       });
     }
@@ -195,7 +224,10 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
 
   Future<void> _loadComments() async {
     try {
-      final comments = await _dataSource.getComments(widget.reportId);
+      final comments = await _dataSource.getComments(
+        widget.reportId,
+        userId: _currentUserId,
+      );
       if (!mounted) return;
       setState(() {
         _comments = comments;
@@ -213,8 +245,6 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     return int.tryParse(user.user_id);
   }
 
-  /// This page stays open across a sign-out, so the save and vote controls have
-  /// to forget the previous viewer and reload as whoever is here now.
   void _onIdentityChanged() {
     if (!mounted) return;
     final report = _report;
@@ -315,13 +345,18 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
       appBar: SubPageAppBar(
         title: strings.reportDetails,
         menuItems: [
-          // Only the person who filed it can change it, so the option is not
-          // offered to anybody else in the first place.
+          
           if (report != null && report.userId == _currentUserId)
             SubPageMenuItem(
               label: 'Edit report',
               icon: Icons.edit_outlined,
               onSelected: _editReport,
+            ),
+          if (report != null && report.userId == _currentUserId)
+            SubPageMenuItem(
+              label: 'Delete report',
+              icon: Icons.delete_outline,
+              onSelected: _deleteReport,
             ),
           SubPageMenuItem(
             label: 'Add an update',
@@ -393,7 +428,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
   Widget _buildHeader(ReportModel report) {
     final level = IncidentSeverity.of(report);
     final category = ReportCategory.fromLabel(report.category);
-    final createdAt = CommentModel.parseTimestamp(report.createdAt);
+    final createdAt = AppTime.parseTimestamp(report.createdAt);
     final location = report.location;
 
     final distance = (widget.viewerLocation != null && location != null)
@@ -432,7 +467,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
                     Text(
                       [
                         category.label,
-                        if (createdAt != null) formatRelativeTime(createdAt),
+                        if (createdAt != null) AppTime.formatRelativeTime(createdAt),
                         if (distance != null)
                           '${GeoUtils.formatDistance(distance)} away',
                       ].join(' · '),
@@ -623,11 +658,6 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
     );
   }
 
-  /// The incident thread: every report that was linked to this one.
-  ///
-  /// Linking has been possible since the create sheet learned to offer it, but
-  /// until now the resulting sub-reports were write-only — filed and then
-  /// invisible. This is where they surface.
   Widget _buildUpdates(ReportModel report) {
     final updates = report.subReports;
 
@@ -660,9 +690,7 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
               ),
             ],
           ),
-          // A card hands us the report it already had, whose thread is not
-          // loaded yet. Saying "nobody has linked anything" there would be
-          // wrong, so wait for the authoritative copy before claiming that.
+          
           if (updates.isEmpty && report.subReportCount > 0)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
@@ -704,93 +732,95 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // A rail down the left edge reads as a thread hanging off the parent.
-          Column(
-            children: [
-              CircleAvatar(
-                radius: 16,
-                backgroundColor: Colors.blue[50],
-                backgroundImage:
-                    hasAvatar ? NetworkImage(update.authorImageUrl!) : null,
-                child: !hasAvatar
-                    ? const Icon(Icons.person, size: 18, color: Color(0xFF1A73E8))
-                    : null,
-              ),
-              Container(
-                width: 2,
-                height: 22,
-                margin: const EdgeInsets.only(top: 4),
-                color: Colors.grey[200],
-              ),
-            ],
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: InkWell(
+        onTap: () => context.push('/sub-report/${update.subReportId}'),
+        borderRadius: BorderRadius.circular(8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            
+            Column(
               children: [
-                Text(
-                  (update.authorName != null && update.authorName!.isNotEmpty)
-                      ? update.authorName!
-                      : 'User #${update.userId}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13.5,
-                  ),
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: Colors.blue[50],
+                  backgroundImage:
+                      hasAvatar ? NetworkImage(update.authorImageUrl!) : null,
+                  child: !hasAvatar
+                      ? const Icon(Icons.person, size: 18, color: Color(0xFF1A73E8))
+                      : null,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  [
-                    if (update.createdAt != null)
-                      formatRelativeTime(update.createdAt),
-                    // Computed by MySQL with ST_Distance_Sphere at insert time.
-                    if (update.distFromParent != null)
-                      '${GeoUtils.formatDistance(update.distFromParent!)} from the report',
-                  ].join(' · '),
-                  style: TextStyle(fontSize: 11.5, color: Colors.grey[600]),
+                Container(
+                  width: 2,
+                  height: 22,
+                  margin: const EdgeInsets.only(top: 4),
+                  color: Colors.grey[200],
                 ),
-                if (update.description != null &&
-                    update.description!.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    update.description!,
-                    style: const TextStyle(fontSize: 14, height: 1.35),
-                  ),
-                ],
-                if (update.upvoteCount > 0 ||
-                    update.downvoteCount > 0 ||
-                    update.commentCount > 0) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      _buildUpdateStat(
-                        Icons.arrow_upward,
-                        update.upvoteCount,
-                      ),
-                      _buildUpdateStat(
-                        Icons.arrow_downward,
-                        update.downvoteCount,
-                      ),
-                      _buildUpdateStat(
-                        Icons.comment_outlined,
-                        update.commentCount,
-                      ),
-                    ],
-                  ),
-                ],
               ],
             ),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    (update.authorName != null && update.authorName!.isNotEmpty)
+                        ? update.authorName!
+                        : 'User #${update.userId}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    [
+                      if (update.createdAt != null)
+                        AppTime.formatRelativeTime(update.createdAt!),
+                      
+                      if (update.distFromParent != null)
+                        '${GeoUtils.formatDistance(update.distFromParent!)} from the report',
+                    ].join(' · '),
+                    style: TextStyle(fontSize: 11.5, color: Colors.grey[600]),
+                  ),
+                  if (update.description != null &&
+                      update.description!.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      update.description!,
+                      style: const TextStyle(fontSize: 14, height: 1.35),
+                    ),
+                  ],
+                  if (update.upvoteCount > 0 ||
+                      update.downvoteCount > 0 ||
+                      update.commentCount > 0) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        _buildUpdateStat(
+                          Icons.arrow_upward,
+                          update.upvoteCount,
+                        ),
+                        _buildUpdateStat(
+                          Icons.arrow_downward,
+                          update.downvoteCount,
+                        ),
+                        _buildUpdateStat(
+                          Icons.comment_outlined,
+                          update.commentCount,
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  /// Read-only tallies. Voting and commenting on an individual update needs the
-  /// dual-FK write path, which the backend does not expose yet.
   Widget _buildUpdateStat(IconData icon, int count) {
     if (count == 0) return const SizedBox.shrink();
     return Padding(
@@ -837,13 +867,45 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
               ),
             )
           else
-            ..._comments.map(_buildCommentTile),
+            ..._comments.indexed.map(
+              (entry) => _buildCommentTile(entry.$2, entry.$1),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildCommentTile(CommentModel comment) {
+  Future<void> _voteComment(int index, String type) async {
+    if (!_requireLogin('vote on a comment')) return;
+    if (index < 0 || index >= _comments.length) return;
+
+    final original = _comments[index];
+    setState(() {
+      _comments = [..._comments]
+        ..[index] = VoteToggle.applyToComment(original, type);
+    });
+
+    try {
+      final serverVote = await _dataSource.voteComment(
+        commentId: original.commentId,
+        userId: _currentUserId!,
+        type: type,
+      );
+      if (!mounted) return;
+      setState(() {
+        _comments = [..._comments]
+          ..[index] = VoteToggle.withVote(original, serverVote);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _comments = [..._comments]..[index] = original;
+      });
+      AppToast.error(context, e, title: 'Vote not saved');
+    }
+  }
+
+  Widget _buildCommentTile(CommentModel comment, int index) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -878,13 +940,18 @@ class _ReportDetailsPageState extends ConsumerState<ReportDetailsPage> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      formatRelativeTime(comment.createdAt),
+                      AppTime.formatRelativeTime(comment.createdAt),
                       style: TextStyle(fontSize: 11, color: Colors.grey[600]),
                     ),
                   ],
                 ),
                 const SizedBox(height: 2),
                 Text(comment.content, style: const TextStyle(fontSize: 14)),
+                CommentVoteBar(
+                  comment: comment,
+                  enabled: _currentUserId != null,
+                  onVote: (type) => _voteComment(index, type),
+                ),
               ],
             ),
           ),

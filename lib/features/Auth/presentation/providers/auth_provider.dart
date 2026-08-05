@@ -7,19 +7,16 @@ import '../../domain/models/auth_form_model.dart';
 import '../../domain/models/user_model.dart';
 import '../../domain/repositories/auth_repository.dart';
 
-/// The session as it exists on this device.
 final authLocalDataSourceProvider = Provider<AuthLocalDataSource>((ref) {
   return AuthLocalDataSourceImpl();
 });
 
-// Data source provider (replace with actual implementation later)
 final authRemoteDataSourceProvider = Provider<AuthRemoteDataSource>((ref) {
   return AuthRemoteDataSourceImpl(
     localDataSource: ref.watch(authLocalDataSourceProvider),
   );
 });
 
-// Repository provider
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   final dataSource = ref.watch(authRemoteDataSourceProvider);
   return AuthRepositoryImpl(
@@ -28,7 +25,6 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
   );
 });
 
-// Auth state
 enum AuthStatus { uninitialized, authenticated, unauthenticated, loading }
 
 class AuthState {
@@ -37,9 +33,6 @@ class AuthState {
   final String? error;
   final bool isSubmitting;
 
-  /// The session came off the device and the backend has not confirmed it yet.
-  /// The user is fully signed in meanwhile — this only marks that the profile
-  /// on screen is the stored one.
   final bool isRevalidating;
 
   const AuthState({
@@ -53,8 +46,7 @@ class AuthState {
   AuthState copyWith({
     AuthStatus? status,
     UserModel? user,
-    // `user: null` cannot express "there is nobody signed in" because null also
-    // means "leave unchanged", so signing out sets this flag instead.
+    
     bool clearUser = false,
     String? error,
     bool? isSubmitting,
@@ -77,13 +69,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _init();
   }
 
-  /// Restores the session in two steps.
-  ///
-  /// The device already knows who was signed in last, so the app opens as that
-  /// person immediately — no spinner, no signed-out flash, and no waiting on a
-  /// backend that may be asleep. The server is then asked to confirm, and only
-  /// an outright rejection ends the session. A phone with no signal keeps what
-  /// it had, which is the whole point of storing it.
   Future<void> _init() async {
     final cached = _authRepository.cachedUser();
 
@@ -99,8 +84,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     result.fold(
       (failure) {
-        // Either the token was refused, or there was never a session to
-        // restore. Both mean nobody is signed in.
+        
         if (cached == null || failure is SessionExpiredFailure) {
           state = state.copyWith(
             status: AuthStatus.unauthenticated,
@@ -111,7 +95,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
           return;
         }
 
-        // Unreachable, not rejected. Stay signed in on what was stored.
         state = state.copyWith(isRevalidating: false, error: null);
       },
       (user) => state = state.copyWith(
@@ -169,8 +152,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String password,
     required String name,
     required String confirmPassword,
-    String? address,   // Optional — null by default
-    String? image_url, // Optional — null by default
+    String? address,   
+    String? image_url, 
   }) async {
     state = state.copyWith(isSubmitting: true, error: null);
 
@@ -179,8 +162,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       email: email,
       password: password,
       confirmPassword: confirmPassword,
-      address: address,   // nullable — no longer required
-      image_url: image_url, // nullable — no longer required
+      address: address,   
+      image_url: image_url, 
     );
     final validationErrors = form.validateAll();
     final errorMessages = validationErrors.values
@@ -198,8 +181,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       email: email,
       password: password,
       name: name,
-      address: address,   // null if not provided
-      image_url: image_url, // null if not provided
+      address: address,   
+      image_url: image_url, 
     );
 
     return result.fold(
@@ -222,9 +205,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> signOut() async {
     state = state.copyWith(isSubmitting: true);
 
-    // The token only lives on this device, so failing to erase it is no reason
-    // to keep the session on screen. Either way the app drops to the guest
-    // state — a sign-out that half-worked is worse than one that fully did.
     await _authRepository.signOut();
 
     state = state.copyWith(
@@ -285,7 +265,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  /// Returns null on success, or a message describing why it failed.
   Future<String?> changePassword({
     required String currentPassword,
     required String newPassword,
@@ -311,7 +290,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  /// Kicks off a password reset for [email].
   Future<String?> requestPasswordReset(String email) async {
     state = state.copyWith(isSubmitting: true, error: null);
 
@@ -339,7 +317,6 @@ final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(repository);
 });
 
-/// Whether somebody is signed in. The one thing auth-gated UI should ask.
 final isAuthenticatedProvider = Provider<bool>(
   (ref) => ref.watch(
     authProvider.select(
@@ -349,11 +326,6 @@ final isAuthenticatedProvider = Provider<bool>(
   ),
 );
 
-/// Id of the signed-in user, or null while browsing as a guest.
-///
-/// Pages that cache per-user data — saved flags, vote state, "my reports" —
-/// watch this and drop what they are holding the moment it changes, so one
-/// account's state never renders under another's, or under no account at all.
 final authIdentityProvider = Provider<String?>(
   (ref) => ref.watch(authProvider.select((state) => state.user?.user_id)),
 );

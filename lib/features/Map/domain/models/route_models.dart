@@ -4,8 +4,6 @@ import 'package:latlong2/latlong.dart';
 import '../../../Report/domain/models/report_model.dart';
 import '../utils/geo_utils.dart';
 
-/// How badly a stretch of road is affected, mirroring the Google Maps
-/// blue / amber / red convention.
 enum CongestionLevel {
   clear,
   slow,
@@ -32,7 +30,6 @@ enum CongestionLevel {
   int get rank => index;
 }
 
-/// One driving option returned by the router.
 class RoutePlan {
   final List<LatLng> points;
   final double distanceMeters;
@@ -48,7 +45,6 @@ class RoutePlan {
   String get durationLabel => GeoUtils.formatDuration(duration);
 }
 
-/// A stretch of the chosen route, coloured by its [level].
 class RouteSegment {
   final List<LatLng> points;
   final CongestionLevel level;
@@ -56,14 +52,11 @@ class RouteSegment {
   const RouteSegment({required this.points, required this.level});
 }
 
-/// An incident that sits inside the route corridor.
 class RouteHazard {
   final ReportModel report;
 
-  /// Perpendicular distance from the route centre line.
   final double offsetMeters;
 
-  /// How far along the route the incident sits, used purely for ordering.
   final double alongMeters;
   final CongestionLevel level;
 
@@ -80,8 +73,6 @@ class RouteHazard {
   String get offsetLabel => '${GeoUtils.formatDistance(offsetMeters)} off route';
 }
 
-/// Everything the map needs to draw a trip: the coloured route, the incidents
-/// beside it, and the discarded alternatives.
 class RouteAnalysis {
   final RoutePlan plan;
   final List<RouteSegment> segments;
@@ -90,7 +81,6 @@ class RouteAnalysis {
   final String fromLabel;
   final String toLabel;
 
-  /// Set when the corridor scan had to stop early on a very long trip.
   final bool corridorScanTruncated;
 
   const RouteAnalysis({

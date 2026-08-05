@@ -1,15 +1,12 @@
+import '../../../../core/utils/app_time.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:ctrc/features/Report/domain/models/comment_model.dart';
 import 'package:ctrc/features/Report/domain/models/report_category.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
 import 'package:ctrc/features/Report/domain/services/report_share.dart';
 import 'package:ctrc/features/Report/presentation/widgets/voters_bottom_sheet.dart';
 
-/// Card surface. Kept a plain sheet of white with the feed's grey showing
-/// through the gaps, which is what makes a run of posts read as a feed instead
-/// of a stack of separate boxes.
 const Color _cardSurface = Colors.white;
 const Color _hairline = Color(0xFFE4E6EB);
 const Color _secondaryText = Color(0xFF65676B);
@@ -24,10 +21,9 @@ class ReportCardWidget extends StatelessWidget {
   final VoidCallback onComment;
   final VoidCallback? onSave;
 
-  /// Tapping the card body opens the full report. Pass a callback to override
-  /// the default push to `/report/:id`.
   final VoidCallback? onOpen;
   final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const ReportCardWidget({
     super.key,
@@ -39,6 +35,7 @@ class ReportCardWidget extends StatelessWidget {
     this.onSave,
     this.onOpen,
     this.onEdit,
+    this.onDelete,
   });
 
   String _formatDistance() {
@@ -75,8 +72,6 @@ class ReportCardWidget extends StatelessWidget {
     );
   }
 
-  /// Passes the incident to the phone's own share sheet — WhatsApp, Messenger,
-  /// SMS and the rest come from there rather than from a list the app keeps.
   void _share(BuildContext context) {
     final box = context.findRenderObject() as RenderBox?;
     ReportShare.share(
@@ -90,7 +85,7 @@ class ReportCardWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final category = ReportCategory.fromLabel(report.category);
-    final createdAt = CommentModel.parseTimestamp(report.createdAt);
+    final createdAt = AppTime.parseTimestamp(report.createdAt);
     final distance = _formatDistance();
 
     return Card(
@@ -103,8 +98,7 @@ class ReportCardWidget extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Everything above the photo keeps the normal card padding. The
-            // photo itself goes edge to edge, the way a feed post looks.
+            
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               child: Column(
@@ -137,7 +131,7 @@ class ReportCardWidget extends StatelessWidget {
                                   'heard from others',
                                 if (report.evidenceType == 'guessed') 'a guess',
                                 if (createdAt != null)
-                                  formatRelativeTime(createdAt),
+                                  AppTime.formatRelativeTime(createdAt),
                                 if (report.updatedAt != null) 'edited',
                                 if (distance.isNotEmpty) distance,
                               ].join(' · '),
@@ -159,6 +153,15 @@ class ReportCardWidget extends StatelessWidget {
                             color: Colors.grey,
                           ),
                           onPressed: onEdit,
+                        ),
+                      if (onDelete != null)
+                        IconButton(
+                          tooltip: 'Delete report',
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.grey,
+                          ),
+                          onPressed: onDelete,
                         ),
                       if (onSave != null)
                         IconButton(
@@ -203,9 +206,6 @@ class ReportCardWidget extends StatelessWidget {
     );
   }
 
-  /// The tally line and the action bar, laid out the way a social post is: what
-  /// the crowd already said on top, what you can do about it underneath, with a
-  /// single hairline between the two.
   Widget _buildFooter(BuildContext context) {
     final hasTally = report.upvoteCount > 0 ||
         report.downvoteCount > 0 ||
@@ -253,9 +253,6 @@ class ReportCardWidget extends StatelessWidget {
     );
   }
 
-  /// "12 · 2 · 3 comments". Tapping the votes opens who cast them, tapping the
-  /// comments opens the thread — the same targets the action bar below has, but
-  /// reached from the number you were already looking at.
   Widget _buildTally(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
@@ -324,8 +321,6 @@ class ReportCardWidget extends StatelessWidget {
     );
   }
 
-  /// Full width photo of the incident, the way a feed post shows one. A photo
-  /// that fails to load is dropped rather than leaving a broken box behind.
   Widget _buildPhoto() {
     return Image.network(
       report.imageUrl!,
@@ -349,9 +344,6 @@ class ReportCardWidget extends StatelessWidget {
     );
   }
 
-  /// Whether the community has backed this report up yet. Worked out by a
-  /// database trigger: how many upvotes it takes depends on how the reporter
-  /// knew about the incident in the first place.
   Widget _buildStatusBadge() {
     final (label, color) = switch (report.status) {
       'verified' => ('Verified', const Color(0xFF1E8E3E)),
@@ -376,9 +368,6 @@ class ReportCardWidget extends StatelessWidget {
     );
   }
 
-  /// Shows that other people linked their reports to this one, which is the
-  /// visible half of the incident-group idea — without it a card looks like a
-  /// lone sighting no matter how many people confirmed it.
   Widget _buildIncidentGroupPill(BuildContext context) {
     final count = report.subReportCount;
 
@@ -417,8 +406,6 @@ class ReportCardWidget extends StatelessWidget {
 
 }
 
-/// The small filled circle a social feed puts in front of a count, so the
-/// tally reads as a summary rather than as another row of buttons.
 class _TallyBadge extends StatelessWidget {
   const _TallyBadge({required this.icon, required this.color});
 
@@ -437,9 +424,6 @@ class _TallyBadge extends StatelessWidget {
   }
 }
 
-/// One of the flat, equal-width actions along the bottom of a card. Flat and
-/// unboxed on purpose: four outlined pills competing with the post above them
-/// is what made the old footer look busy.
 class _FooterAction extends StatelessWidget {
   const _FooterAction({
     required this.icon,

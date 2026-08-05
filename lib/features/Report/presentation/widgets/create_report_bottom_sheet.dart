@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../../core/l10n/app_strings.dart';
+import '../../../../core/utils/app_time.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 import '../../../Map/data/datasources/geocoding_datasource.dart';
@@ -12,32 +13,20 @@ import '../../../Map/domain/utils/geo_utils.dart';
 import '../../data/datasources/report_remote_datasource.dart';
 import '../../domain/models/report_category.dart';
 import '../../domain/models/report_model.dart';
+import '../../domain/services/incident_match.dart';
 import 'link_incident_sheet.dart';
 
-/// How far out to look for an incident this report might belong to.
-///
-/// Fixed at the roadmap's 5 km rather than the user's browse radius: how wide
-/// you like your feed is a display preference, whereas "is this the same
-/// event?" is a property of the road.
 const double kLinkSearchRadiusKm = 5.0;
 
 class CreateReportBottomSheet extends ConsumerStatefulWidget {
   final double latitude;
   final double longitude;
 
-  /// Set when the reporter already chose an incident to attach to (for example
-  /// "Add an update" from the report details page). When null the sheet runs
-  /// the link-or-create check itself.
   final int? parentReportId;
   final String? parentTitle;
 
-  /// Human label for where the pin is, shown so the reporter can tell whether
-  /// they are filing against their GPS position or a spot they picked.
   final String? locationLabel;
 
-  /// Set to turn the sheet into an editor for a report the user already filed.
-  /// The fields start out filled in and submitting saves over the original
-  /// instead of creating a second report.
   final ReportModel? editReport;
 
   const CreateReportBottomSheet({
@@ -66,22 +55,15 @@ class _CreateReportBottomSheetState
 
   String _category = ReportCategory.trafficJam.label;
 
-  /// How the reporter knows: `seen`, `heard` or `guessed`. The backend needs
-  /// more upvotes before it will call a weakly evidenced report verified.
   String _evidence = 'seen';
 
   bool _isLoading = false;
 
-  /// Uploaded as soon as it is picked, so by the time the report is submitted
-  /// there is only a link to send. Null until the reporter attaches a photo.
   String? _imageUrl;
   bool _isUploadingImage = false;
 
-  /// Resolved once when the sheet opens so the report carries a street name
-  /// instead of bare coordinates.
   String? _resolvedAddress;
 
-  /// Chosen in the link step; also set upfront when the caller passed a parent.
   int? _linkedParentId;
   String? _linkedParentTitle;
 
@@ -97,8 +79,7 @@ class _CreateReportBottomSheetState
       _descriptionController.text = editing.description ?? '';
       _evidence = editing.evidenceType;
       _imageUrl = editing.imageUrl;
-      // A report filed as Unknown keeps the category picker on its default,
-      // because Unknown is never something the reporter picks by hand.
+      
       if (editing.category != ReportCategory.unknown.label) {
         _category = editing.category;
       }
@@ -127,8 +108,6 @@ class _CreateReportBottomSheetState
 
   bool get _isEditing => widget.editReport != null;
 
-  /// Someone who is only guessing cannot say what the incident is, so the
-  /// category is filed as Unknown and left for a witness to correct.
   bool get _isGuess => _evidence == 'guessed';
 
   String get _submittedCategory =>
@@ -136,14 +115,6 @@ class _CreateReportBottomSheetState
 
   LatLng get _point => LatLng(widget.latitude, widget.longitude);
 
-  /// Whether an incident already on the map could be the same event as the one
-  /// being filed. Distance alone is not enough: without this a fire four
-  /// kilometres away was offered as a match for a traffic jam, and accepting
-  /// it files the report as an update underneath somebody else's incident,
-  /// where it never shows up as a post of its own.
-  ///
-  /// Unknown matches anything in both directions — that is the whole point of
-  /// it, since a report filed as a guess is waiting to be identified.
   bool _couldBeSameIncident(String otherCategory) {
     final unknown = ReportCategory.unknown.label.toLowerCase();
     final mine = _submittedCategory.toLowerCase();
@@ -151,9 +122,6 @@ class _CreateReportBottomSheetState
     return mine == unknown || other == unknown || mine == other;
   }
 
-  /// Open incidents close enough that this report is probably about the same
-  /// event. Returns an empty list when nothing is nearby or the lookup fails —
-  /// a flaky network must never block someone from filing a report.
   Future<List<IncidentCandidate>> _findNearbyIncidents({
     required int userId,
     required double radiusKm,
@@ -164,7 +132,10 @@ class _CreateReportBottomSheetState
         lng: widget.longitude,
         radius: radiusKm,
         userId: userId,
+        withinHours: kLinkMaxAgeHours,
       );
+
+      final title = _titleController.text;
 
       final candidates = <IncidentCandidate>[];
       for (final report in nearby) {
@@ -172,17 +143,23 @@ class _CreateReportBottomSheetState
         if (location == null) continue;
         if (!IncidentSeverity.isActive(report)) continue;
         if (!_couldBeSameIncident(report.category)) continue;
+        if (!IncidentMatch.isRecentEnough(
+          AppTime.parseTimestamp(report.createdAt),
+        )) {
+          continue;
+        }
+
         candidates.add((
           report: report,
           distanceMeters: GeoUtils.metersBetween(
             _point,
             LatLng(location.latitude, location.longitude),
           ),
+          titleScore: IncidentMatch.titleSimilarity(title, report.title),
         ));
       }
 
-      candidates.sort((a, b) => a.distanceMeters.compareTo(b.distanceMeters));
-      return candidates.take(8).toList();
+      return IncidentMatch.rank(candidates).take(8).toList();
     } catch (_) {
       return const [];
     }
@@ -253,8 +230,6 @@ class _CreateReportBottomSheetState
 
     setState(() => _isLoading = true);
 
-    // Editing saves over the original. The link-or-create step is skipped
-    // entirely, because this report already belongs where it belongs.
     if (_isEditing) {
       try {
         await _remoteDataSource.updateReport(
@@ -279,7 +254,6 @@ class _CreateReportBottomSheetState
 
     var parentReportId = _linkedParentId;
 
-    // Link-or-create: only when the reporter has not already picked a parent.
     if (parentReportId == null) {
       final candidates = await _findNearbyIncidents(
         userId: userId,
@@ -297,7 +271,7 @@ class _CreateReportBottomSheetState
 
         if (!mounted) return;
         if (choice == null) {
-          // Backed out of the prompt — keep the form as they left it.
+          
           setState(() => _isLoading = false);
           return;
         }
@@ -648,7 +622,6 @@ class _CreateReportBottomSheetState
   }
 }
 
-/// What the sheet handed back, so callers can word the confirmation correctly.
 enum CreateReportResult {
   created,
   linked,

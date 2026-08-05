@@ -9,7 +9,6 @@ import '../datasources/auth_remote_datasource.dart';
 class AuthRepositoryImpl implements AuthRepository {
   final AuthRemoteDataSource remoteDataSource;
 
-  /// The copy of the session that survives the app being closed.
   final AuthLocalDataSource localDataSource;
 
   AuthRepositoryImpl({
@@ -30,7 +29,7 @@ class AuthRepositoryImpl implements AuthRepository {
         email: email,
         password: password,
       );
-      // From here the device can open as this person on its own.
+      
       await localDataSource.saveUser(user);
       return Right(user);
     } catch (e) {
@@ -43,8 +42,8 @@ class AuthRepositoryImpl implements AuthRepository {
     required String email,
     required String password,
     required String name,
-    String? address,   // Optional — null by default
-    String? image_url, // Optional — null by default
+    String? address,   
+    String? image_url, 
   }) async {
     try {
       final user = await remoteDataSource.signUp(
@@ -65,12 +64,11 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<Either<Failure, UserModel>> getCurrentUser() async {
     try {
       final user = await remoteDataSource.getCurrentUser();
-      // Refreshes the stored profile, so a name or avatar changed on another
-      // device is what the next cold start opens with.
+      
       await localDataSource.saveUser(user);
       return Right(user);
     } on SessionExpiredException catch (e) {
-      // The token is gone or was refused, so nothing kept beside it is usable.
+      
       await localDataSource.clear();
       return Left(SessionExpiredFailure(e.message));
     } catch (e) {
@@ -80,9 +78,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<Either<Failure, void>> signOut() async {
-    // Cleared first, and whatever the remote call does: a sign-out that leaves
-    // the previous account's profile, feed or saved posts sitting on the device
-    // is a worse outcome than one the server never hears about.
+    
     await localDataSource.clear();
 
     try {

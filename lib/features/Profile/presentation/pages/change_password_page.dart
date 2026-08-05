@@ -6,7 +6,6 @@ import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/widgets/sub_page_app_bar.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 
-/// Settings › Change Password. Talks to `PUT /api/users/me/password`.
 class ChangePasswordPage extends ConsumerStatefulWidget {
   const ChangePasswordPage({super.key});
 

@@ -2,8 +2,6 @@ import 'package:latlong2/latlong.dart';
 
 import '../utils/geo_utils.dart';
 
-/// A plain lat/lng rectangle. Kept independent of flutter_map so the domain
-/// layer does not depend on the rendering package.
 class GeoBounds {
   final double south;
   final double north;
@@ -17,7 +15,6 @@ class GeoBounds {
     required this.east,
   });
 
-  /// Nominatim returns `boundingbox` as `[south, north, west, east]` strings.
   static GeoBounds? fromNominatim(dynamic raw) {
     if (raw is! List || raw.length < 4) return null;
     final values = raw.map((e) => double.tryParse('$e')).toList();
@@ -32,7 +29,6 @@ class GeoBounds {
 
   LatLng get center => LatLng((south + north) / 2, (west + east) / 2);
 
-  /// Radius of the circle that circumscribes this box, in meters.
   double get radiusMeters =>
       GeoUtils.metersBetween(center, LatLng(north, east));
 

@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/settings_provider.dart';
 import '../../domain/models/map_scope.dart';
 
-/// Map services that are also exposed as entries in the app drawer.
 enum MapAction {
   recenter,
   openSearch,
@@ -46,8 +45,6 @@ enum MapAction {
       };
 }
 
-/// A one-shot instruction for the map page. [seq] makes every dispatch unique
-/// so repeating the same action still fires.
 class MapCommand {
   final MapAction action;
   final int seq;
@@ -67,17 +64,11 @@ class MapCommandController extends StateNotifier<MapCommand?> {
   void consume() => state = null;
 }
 
-/// Commands sent from the drawer (or anywhere else) to the map page.
 final mapCommandProvider =
     StateNotifierProvider<MapCommandController, MapCommand?>(
   (ref) => MapCommandController(),
 );
 
-/// The currently selected area scope, shared between the map's option bar and
-/// the drawer so both stay in sync.
-///
-/// Starts from the "Report Radius" preference in Settings; the scope bar can
-/// still override it for the session.
 final mapScopeProvider = StateProvider<MapScope>((ref) {
   final radiusKm = ref.read(settingsProvider).reportRadius;
   if (radiusKm <= 2) return MapScope.radius2km;
@@ -85,9 +76,6 @@ final mapScopeProvider = StateProvider<MapScope>((ref) {
   return MapScope.radius10km;
 });
 
-/// Number of alerts currently visible in the selected area — surfaced in the
-/// drawer so the badge is readable without opening the map.
 final mapAreaAlertCountProvider = StateProvider<int>((ref) => 0);
 
-/// Number of alerts along the active route, or `null` when no route is drawn.
 final mapRouteAlertCountProvider = StateProvider<int?>((ref) => null);

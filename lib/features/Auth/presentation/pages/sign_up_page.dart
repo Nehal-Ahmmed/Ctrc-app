@@ -38,8 +38,8 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
           password: _passwordController.text,
           name: _nameController.text.trim(),
           confirmPassword: _confirmPasswordController.text,
-          address: '', // Default empty address
-          image_url: null, // Default null image URL
+          address: '', 
+          image_url: null, 
         );
     if (error == null && mounted) {
       context.go('/home');
@@ -63,7 +63,7 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Logo / App Title
+                  
                   Icon(
                     Icons.traffic_rounded,
                     size: 80,
@@ -87,7 +87,6 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                   ),
                   const SizedBox(height: 40),
 
-                  // Error message
                   if (authState.error != null)
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -123,7 +122,6 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                       ),
                     ),
 
-                  // Name field
                   TextFormField(
                     controller: _nameController,
                     keyboardType: TextInputType.name,
@@ -146,7 +144,6 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Email field
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -171,7 +168,6 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Password field
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
@@ -203,7 +199,6 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Confirm Password field
                   TextFormField(
                     controller: _confirmPasswordController,
                     obscureText: _obscureConfirmPassword,
@@ -237,7 +232,6 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Sign Up button
                   FilledButton(
                     onPressed: authState.isSubmitting ? null : _handleSignUp,
                     child: authState.isSubmitting
@@ -250,7 +244,6 @@ class _SignUpPageState extends ConsumerState<SignUpPage> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Sign In link
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [

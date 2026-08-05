@@ -1,19 +1,14 @@
 import '../../../Report/domain/models/report_category.dart';
+import '../../../../core/utils/app_time.dart';
 
-/// An incident that showed up near the user and has not been acknowledged yet.
-///
-/// These are produced locally from the nearby-reports feed rather than pushed
-/// from a server, so no FCM setup is required for them to work.
 class AppNotification {
   final int reportId;
   final String title;
   final String category;
   final String? description;
 
-  /// How far the incident was from the user when it was first seen.
   final double? distanceMeters;
 
-  /// When the app noticed it (not when the report was filed).
   final DateTime receivedAt;
   final bool isRead;
 
@@ -56,9 +51,8 @@ class AppNotification {
       category: json['category'] as String? ?? 'Other',
       description: json['description'] as String?,
       distanceMeters: (json['distanceMeters'] as num?)?.toDouble(),
-      receivedAt:
-          DateTime.tryParse(json['receivedAt'] as String? ?? '') ??
-              DateTime.fromMillisecondsSinceEpoch(0),
+      receivedAt: AppTime.parseTimestamp(json['receivedAt']) ??
+          DateTime.fromMillisecondsSinceEpoch(0),
       isRead: json['isRead'] as bool? ?? false,
     );
   }

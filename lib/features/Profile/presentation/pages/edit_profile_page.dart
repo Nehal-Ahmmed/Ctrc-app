@@ -7,8 +7,6 @@ import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/widgets/sub_page_app_bar.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 
-/// Standalone editor reached from Settings › Edit Profile, which previously
-/// went nowhere.
 class EditProfilePage extends ConsumerStatefulWidget {
   const EditProfilePage({super.key});
 

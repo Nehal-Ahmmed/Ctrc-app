@@ -32,8 +32,6 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
   void initState() {
     super.initState();
 
-    // A bookmark list is something the user curated; it should be readable
-    // without waiting on — or having — a connection.
     final cached = _cache.read(
       ReportLocalCache.savedBucket,
       userId: ref.read(authIdentityProvider),
@@ -96,8 +94,6 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
     }
   }
 
-  /// Unsaving here removes the card from the list, with an Undo so a mis-tap is
-  /// recoverable.
   Future<void> _handleUnsave(ReportModel report, int index) async {
     final userId = _userId;
     if (userId == null) return;
@@ -110,7 +106,7 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
       AppToast.show(
         context,
         'Removed from saved',
-        // Long enough to notice the Undo and reach for it.
+        
         duration: const Duration(seconds: 5),
         action: ToastAction(
           label: 'Undo',
@@ -183,8 +179,50 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
     }
   }
 
-  /// Nothing here survives a change of account — the whole list belonged to the
-  /// previous one.
+  Future<void> _handleDeleteReport(ReportModel report, int index) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Report'),
+        content: const Text('Are you sure you want to delete this report?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(ref.watch(appStringsProvider).cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    final userId = _userId;
+    if (userId == null) return;
+
+    try {
+      await _remoteDataSource.deleteReport(
+        reportId: report.reportId,
+        userId: userId,
+      );
+      _cache.evictReport(report.reportId, userId: userId.toString());
+      if (mounted) {
+        setState(() {
+          _savedReports.removeAt(index);
+        });
+        AppToast.success(context, 'Report deleted successfully');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppToast.error(context, e, title: 'Could not delete report');
+      }
+    }
+  }
+
   void _onIdentityChanged() {
     if (!mounted) return;
     setState(() {
@@ -239,6 +277,7 @@ class _SavedPostsPageState extends ConsumerState<SavedPostsPage> {
                               onComment: () => _openCommentSheet(report, index),
                               onSave: () => _handleUnsave(report, index),
                               onEdit: isOwner ? () => _handleEditReport(report, index) : null,
+                              onDelete: isOwner ? () => _handleDeleteReport(report, index) : null,
                             );
                           },
                         ),

@@ -54,7 +54,7 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Logo / App Title
+                  
                   Icon(
                     Icons.traffic_rounded,
                     size: 80,
@@ -78,7 +78,6 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                   ),
                   const SizedBox(height: 40),
 
-                  // Error message
                   if (authState.error != null)
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -114,7 +113,6 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                       ),
                     ),
 
-                  // Email field
                   TextFormField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -139,7 +137,6 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Password field
                   TextFormField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
@@ -172,7 +169,6 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                   ),
                   const SizedBox(height: 8),
 
-                  // Forgot password
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
@@ -182,7 +178,6 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Sign In button
                   FilledButton(
                     onPressed: authState.isSubmitting ? null : _handleSignIn,
                     child: authState.isSubmitting
@@ -195,7 +190,6 @@ class _SignInPageState extends ConsumerState<SignInPage> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Sign Up link
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [

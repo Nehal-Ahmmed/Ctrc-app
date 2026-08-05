@@ -1,17 +1,14 @@
+import '../../../../core/utils/app_time.dart';
 import 'package:flutter/material.dart';
 
 import '../../../Map/domain/services/incident_severity.dart';
 import '../../../Map/domain/utils/geo_utils.dart';
-import '../../domain/models/comment_model.dart';
 import '../../domain/models/report_category.dart';
 import '../../domain/models/report_model.dart';
+import '../../domain/services/incident_match.dart';
 
-/// One incident the new report could be attached to.
-typedef IncidentCandidate = ({ReportModel report, double distanceMeters});
-
-/// What the reporter decided in [LinkIncidentSheet].
 class IncidentLinkChoice {
-  /// The incident to attach to, or `null` to open a brand new one.
+  
   final ReportModel? parent;
 
   const IncidentLinkChoice.linkTo(ReportModel this.parent);
@@ -21,12 +18,6 @@ class IncidentLinkChoice {
   bool get isLink => parent != null;
 }
 
-/// Asks whether a new report belongs to an incident that is already open
-/// nearby.
-///
-/// This is the "link or create" step from the roadmap: filing a third pothole
-/// report for the same stretch of road should thicken the existing incident
-/// rather than spawn a duplicate.
 class LinkIncidentSheet extends StatelessWidget {
   final List<IncidentCandidate> candidates;
   final String radiusLabel;
@@ -37,7 +28,6 @@ class LinkIncidentSheet extends StatelessWidget {
     required this.radiusLabel,
   });
 
-  /// Returns the reporter's choice, or `null` if they backed out entirely.
   static Future<IncidentLinkChoice?> show(
     BuildContext context, {
     required List<IncidentCandidate> candidates,
@@ -89,8 +79,9 @@ class LinkIncidentSheet extends StatelessWidget {
                 Text(
                   '${candidates.length} incident'
                   '${candidates.length == 1 ? ' is' : 's are'} already reported '
-                  '$radiusLabel. Linking keeps everything about the same event '
-                  'in one place.',
+                  '$radiusLabel in the last ${kLinkMaxAge.inDays} days, '
+                  'closest first. Linking keeps everything about the same '
+                  'event in one place.',
                   style: TextStyle(fontSize: 13, color: Colors.grey[700]),
                 ),
               ],
@@ -161,7 +152,7 @@ class LinkIncidentSheet extends StatelessWidget {
     final report = candidate.report;
     final level = IncidentSeverity.of(report);
     final category = ReportCategory.fromLabel(report.category);
-    final createdAt = CommentModel.parseTimestamp(report.createdAt);
+    final createdAt = AppTime.parseTimestamp(report.createdAt);
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
@@ -169,11 +160,32 @@ class LinkIncidentSheet extends StatelessWidget {
         backgroundColor: level.color.withValues(alpha: 0.15),
         child: Icon(category.icon, color: level.color, size: 20),
       ),
-      title: Text(
-        report.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+      title: Row(
+        children: [
+          Flexible(
+            child: Text(
+              report.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+            ),
+          ),
+          
+          if (candidate.titleScore >= IncidentMatch.strongTitleScore) ...[
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Text(
+                'similar wording',
+                style: TextStyle(fontSize: 10, color: Color(0xFF1A73E8)),
+              ),
+            ),
+          ],
+        ],
       ),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 2),
@@ -181,7 +193,7 @@ class LinkIncidentSheet extends StatelessWidget {
           [
             category.label,
             '${GeoUtils.formatDistance(candidate.distanceMeters)} away',
-            if (createdAt != null) formatRelativeTime(createdAt),
+            if (createdAt != null) AppTime.formatRelativeTime(createdAt),
           ].join(' · '),
           style: TextStyle(fontSize: 12, color: Colors.grey[600]),
         ),

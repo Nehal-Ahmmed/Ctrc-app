@@ -1,11 +1,7 @@
+import '../../../../core/utils/app_time.dart';
 import '../../../Report/domain/models/report_model.dart';
 import '../models/route_models.dart';
 
-/// Maps an incident report onto a road-condition level.
-///
-/// Categories are matched loosely because reports come from several places in
-/// the app (feed picker, create sheet, seeded data) with slightly different
-/// wording.
 class IncidentSeverity {
   IncidentSeverity._();
 
@@ -41,7 +37,6 @@ class IncidentSeverity {
     'crime',
   ];
 
-  /// Net community confidence in the report.
   static int score(ReportModel report) =>
       report.upvoteCount - report.downvoteCount;
 
@@ -57,8 +52,7 @@ class IncidentSeverity {
     }
 
     final net = score(report);
-    // Strongly disputed blockages soften to a caution; heavily confirmed
-    // slowdowns harden into a blockage.
+    
     if (level == CongestionLevel.blocked && net < 0) return CongestionLevel.slow;
     if (level == CongestionLevel.slow && net >= 20) {
       return CongestionLevel.blocked;
@@ -66,23 +60,11 @@ class IncidentSeverity {
     return level;
   }
 
-  /// Reports whose `expiresAt` is in the past no longer affect the road.
-  ///
-  /// The backend sends a `LocalDateTime`, so the string carries no timezone.
-  /// `DateTime.parse` would read that as the phone's own clock, which is six
-  /// hours ahead of the server here — long enough that a report filed a minute
-  /// ago looked expired and dropped straight off the map. The server runs on
-  /// UTC, so a bare timestamp is read as UTC.
   static bool isActive(ReportModel report) {
     final raw = report.expiresAt;
     if (raw == null || raw.isEmpty) return true;
-    final parsed = DateTime.tryParse(_asUtc(raw));
+    final parsed = AppTime.parseTimestamp(raw);
     if (parsed == null) return true;
     return parsed.isAfter(DateTime.now().toUtc());
   }
-
-  static final _hasTimezone = RegExp(r'(Z|[+-]\d{2}:?\d{2})$');
-
-  static String _asUtc(String raw) =>
-      _hasTimezone.hasMatch(raw) ? raw : '${raw}Z';
 }

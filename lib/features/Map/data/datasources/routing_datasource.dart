@@ -4,12 +4,9 @@ import 'package:latlong2/latlong.dart';
 import '../../domain/models/route_models.dart';
 import 'geo_request_cache.dart';
 
-/// OSRM demo-server routing. Returns the fastest route first, followed by any
-/// alternatives the router offers.
 class RoutingDataSource {
   final Dio _dio;
 
-  /// Shared so repeating a trip during a session costs no network call.
   static final GeoRequestCache<List<RoutePlan>> _routeCache =
       GeoRequestCache<List<RoutePlan>>(
     ttl: Duration(minutes: 20),
@@ -34,8 +31,6 @@ class RoutingDataSource {
     final coords = '${from.longitude},${from.latitude};'
         '${to.longitude},${to.latitude}';
 
-    // Same route asked for twice (a re-run during a demo, an edit that changes
-    // only the labels) should not hit the free routing server again.
     final cacheKey = '$profile|$coords';
     final cached = _routeCache.get(cacheKey);
     if (cached != null) return cached;

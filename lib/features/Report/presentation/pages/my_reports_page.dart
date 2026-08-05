@@ -32,8 +32,6 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
   void initState() {
     super.initState();
 
-    // Last time's list, so the page opens with the user's own reports on it
-    // instead of a spinner over a backend that may be waking up.
     final cached = _cache.read(
       ReportLocalCache.mineBucket,
       userId: ref.read(authIdentityProvider),
@@ -72,8 +70,7 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        // With the stored list already on screen there is nothing to replace,
-        // so the failure is worth saying out loud either way.
+        
         AppToast.error(context, e, title: 'Could not load your reports');
       }
     }
@@ -160,8 +157,50 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
     }
   }
 
-  /// Nothing here survives a change of account — the whole list belonged to the
-  /// previous one.
+  Future<void> _handleDeleteReport(ReportModel report, int index) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Report'),
+        content: const Text('Are you sure you want to delete this report?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(ref.watch(appStringsProvider).cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    final userId = _userId;
+    if (userId == null) return;
+
+    try {
+      await _remoteDataSource.deleteReport(
+        reportId: report.reportId,
+        userId: userId,
+      );
+      _cache.evictReport(report.reportId, userId: userId.toString());
+      if (mounted) {
+        setState(() {
+          _myReports.removeAt(index);
+        });
+        AppToast.success(context, 'Report deleted successfully');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppToast.error(context, e, title: 'Could not delete report');
+      }
+    }
+  }
+
   void _onIdentityChanged() {
     if (!mounted) return;
     setState(() {
@@ -212,6 +251,7 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
                               onComment: () => _openCommentSheet(report, index),
                               onSave: () => _handleSave(report, index),
                               onEdit: () => _handleEditReport(report, index),
+                              onDelete: () => _handleDeleteReport(report, index),
                             );
                           },
                         ),
@@ -249,7 +289,7 @@ class _MyReportsPageState extends ConsumerState<MyReportsPage> {
   }
 
   Widget _buildEmpty() {
-    // Kept scrollable so pull-to-refresh still works on an empty list.
+    
     return ListView(
       children: [
         SizedBox(height: MediaQuery.of(context).size.height * 0.25),

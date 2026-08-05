@@ -1,11 +1,8 @@
+import 'package:ctrc/core/utils/app_time.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ctrc/features/Map/domain/services/incident_severity.dart';
-import 'package:ctrc/features/Report/domain/models/comment_model.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
 
-/// [ReportModel] keeps its timestamps as strings, but every screen reads them
-/// back with `DateTime.tryParse`. These cover the shapes the backend can send
-/// so a numeric timestamp cannot quietly become an unparseable string.
 void main() {
   ReportModel parse(Map<String, dynamic> extra) => ReportModel.fromJson({
         'reportId': 1,
@@ -17,20 +14,33 @@ void main() {
       });
 
   group('ReportModel timestamps', () {
-    test('keeps an iso string as it arrived', () {
+    test('stamps a zone-less string as the UTC it came from', () {
+      
       final report = parse({'createdAt': '2026-08-01T10:30:00'});
 
-      expect(report.createdAt, '2026-08-01T10:30:00');
-      expect(CommentModel.parseTimestamp(report.createdAt), isNotNull);
+      expect(report.createdAt, '2026-08-01T10:30:00.000Z');
+      expect(
+        AppTime.parseTimestamp(report.createdAt),
+        DateTime.utc(2026, 8, 1, 10, 30),
+      );
+    });
+
+    test('leaves a timestamp that already carries a zone on its own instant', () {
+      final report = parse({'createdAt': '2026-08-01T10:30:00Z'});
+
+      expect(
+        AppTime.parseTimestamp(report.createdAt),
+        DateTime.utc(2026, 8, 1, 10, 30),
+      );
     });
 
     test('normalises epoch millis into something parseable', () {
-      // Jackson emits a java.sql.Timestamp as a number under some configs.
+      
       final millis = DateTime.utc(2026, 8, 1, 10, 30).millisecondsSinceEpoch;
       final report = parse({'createdAt': millis});
 
       expect(report.createdAt, isNotNull);
-      final parsed = CommentModel.parseTimestamp(report.createdAt);
+      final parsed = AppTime.parseTimestamp(report.createdAt);
       expect(parsed, isNotNull);
       expect(parsed!.toUtc(), DateTime.utc(2026, 8, 1, 10, 30));
     });
@@ -111,7 +121,7 @@ void main() {
       expect(report.upvoteCount, 4);
       expect(report.isSaved, isTrue);
       expect(report.userVoteType, 'down');
-      // Not sent, so the safe defaults apply.
+      
       expect(report.status, 'unverified');
       expect(report.downvoteCount, 0);
       expect(report.location, isNull);
@@ -138,7 +148,12 @@ void main() {
       expect(again.reportId, report.reportId);
       expect(again.status, 'disputed');
       expect(again.commentCount, 2);
-      expect(again.createdAt, '2026-08-01T10:30:00');
+      
+      expect(again.createdAt, report.createdAt);
+      expect(
+        AppTime.parseTimestamp(again.createdAt),
+        DateTime.utc(2026, 8, 1, 10, 30),
+      );
       expect(again.subReportCount, 3);
     });
   });

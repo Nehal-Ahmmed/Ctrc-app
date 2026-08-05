@@ -6,8 +6,6 @@ import 'package:ctrc/features/Auth/domain/models/user_model.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
 import 'package:ctrc/main.dart';
 
-/// Offline stand-in so the splash screen's backend ping does not reach out to
-/// the network during tests.
 class _FakeAuthRemoteDataSource implements AuthRemoteDataSource {
   @override
   Future<bool> checkHealth() async => false;
@@ -61,7 +59,7 @@ class _FakeAuthRemoteDataSource implements AuthRemoteDataSource {
 
 void main() {
   setUp(() {
-    // Settings and auth both read preferences on startup.
+    
     SharedPreferences.setMockInitialValues({});
   });
 
@@ -79,7 +77,6 @@ void main() {
 
     expect(find.text('CTRC System'), findsOneWidget);
 
-    // Let the splash finish its redirect so no timers outlive the test.
     await tester.pumpAndSettle();
   });
 }

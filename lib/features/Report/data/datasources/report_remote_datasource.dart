@@ -3,12 +3,11 @@ import '../../../../core/storage/local_store.dart';
 import '../../domain/models/comment_model.dart';
 import '../../domain/models/feed_filter.dart';
 import '../../domain/models/report_model.dart';
+import '../../domain/models/sub_report_model.dart';
 import '../../domain/models/voter_model.dart';
 
 abstract class ReportRemoteDataSource {
-  /// Reports around a point. [filter] decides both which of them come back and
-  /// the order they arrive in; leaving it out gives the plain closest-first
-  /// list.
+  
   Future<List<ReportModel>> getNearbyReports({
     required double lat,
     required double lng,
@@ -16,6 +15,8 @@ abstract class ReportRemoteDataSource {
     String? category,
     int? userId,
     FeedFilter? filter,
+
+    int? withinHours,
   });
     Future<void> createReport({
         required int userId,
@@ -31,9 +32,6 @@ abstract class ReportRemoteDataSource {
         String? city,
     });
 
-    /// Edits a report the signed-in user filed. Only the text side changes,
-    /// the location it was pinned at stays as it was. Pass `imageUrl: null`
-    /// to remove the photo.
     Future<ReportModel> updateReport({
         required int reportId,
         required int userId,
@@ -44,10 +42,28 @@ abstract class ReportRemoteDataSource {
         String? imageUrl,
     });
 
-    /// Sends one photo to the backend, which stores it on Cloudinary and
-    /// hands back the link. Call this before [createReport] and pass the
-    /// result as `imageUrl`.
+    Future<void> deleteReport({
+        required int reportId,
+        required int userId,
+    });
+
     Future<String> uploadReportImage(String filePath);
+
+    Future<SubReportModel> getSubReportById(int subReportId, {int? userId});
+
+    Future<List<CommentModel>> getSubReportComments(int subReportId, {int? userId});
+
+    Future<void> addSubReportComment({
+        required int subReportId,
+        required int userId,
+        required String content,
+    });
+
+    Future<void> voteSubReport({
+        required int subReportId,
+        required int userId,
+        required String type,
+    });
 
     Future<void> voteReport({
         required int reportId,
@@ -64,14 +80,16 @@ abstract class ReportRemoteDataSource {
     Future<void> saveReport(int reportId, int userId);
     Future<void> unsaveReport(int reportId, int userId);
 
-    /// Single report with its location, used by the report details page.
-    /// Pass [userId] so the server can resolve saved / vote state.
     Future<ReportModel> getReportById(int reportId, {int? userId});
 
-    /// Comment thread for a report, oldest first.
-    Future<List<CommentModel>> getComments(int reportId);
+    Future<List<CommentModel>> getComments(int reportId, {int? userId});
 
-    /// Voters list for a report.
+    Future<String?> voteComment({
+        required int commentId,
+        required int userId,
+        required String type,
+    });
+
     Future<List<VoterModel>> getVotes(int reportId);
 }
 
@@ -85,8 +103,7 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
             (Dio(
               BaseOptions(
                 baseUrl: baseUrl,
-                // Generous, because the hosted backend sleeps when idle and a
-                // photo upload on mobile data is nowhere near instant.
+                
                 connectTimeout: const Duration(seconds: 60),
                 receiveTimeout: const Duration(seconds: 60),
                 headers: {
@@ -180,6 +197,87 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
   }
 
   @override
+  Future<void> deleteReport({
+    required int reportId,
+    required int userId,
+  }) async {
+    try {
+      final response = await dio.delete(
+        '/api/reports/$reportId',
+        options: _authOptions(userId: userId),
+      );
+      if (response.statusCode != 200) {
+        throw Exception('Failed to delete report');
+      }
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Failed to delete report');
+    }
+  }
+
+  @override
+  Future<SubReportModel> getSubReportById(int subReportId, {int? userId}) async {
+    try {
+      final response = await dio.get(
+        '/api/sub-reports/$subReportId',
+        options: userId != null ? _authOptions(userId: userId) : null,
+      );
+      return SubReportModel.fromJson(response.data['data']);
+    } catch (e) {
+      throw Exception('Failed to load sub-report');
+    }
+  }
+
+  @override
+  Future<List<CommentModel>> getSubReportComments(int subReportId,
+      {int? userId}) async {
+    try {
+      final response = await dio.get(
+        '/api/sub-reports/$subReportId/comments',
+        options: _authOptions(userId: userId),
+      );
+      final list = response.data['data'] as List;
+      return list.map((c) => CommentModel.fromJson(c)).toList();
+    } catch (e) {
+      throw Exception('Failed to load sub-report comments');
+    }
+  }
+
+  @override
+  Future<void> addSubReportComment({
+    required int subReportId,
+    required int userId,
+    required String content,
+  }) async {
+    try {
+      await dio.post(
+        '/api/sub-reports/$subReportId/comments',
+        data: {'content': content},
+        options: _authOptions(userId: userId),
+      );
+    } catch (e) {
+      throw Exception('Failed to add comment to sub-report');
+    }
+  }
+
+  @override
+  Future<void> voteSubReport({
+    required int subReportId,
+    required int userId,
+    required String type,
+  }) async {
+    try {
+      await dio.post(
+        '/api/sub-reports/$subReportId/vote',
+        data: {'type': type},
+        options: _authOptions(userId: userId),
+      );
+    } catch (e) {
+      throw Exception('Failed to vote on sub-report');
+    }
+  }
+
+  @override
   Future<String> uploadReportImage(String filePath) async {
     try {
       final formData = FormData.fromMap({
@@ -215,15 +313,17 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     String? category,
     int? userId,
     FeedFilter? filter,
+    int? withinHours,
   }) async {
     try {
       final Map<String, dynamic> queryParams = {
         'lat': lat,
         'lng': lng,
         'radius': radius,
-        // The server does the narrowing and the ordering; the app never
-        // re-sorts what comes back.
+        
         if (filter != null) ...filter.toQueryParameters(),
+        
+        if (withinHours != null) 'withinHours': withinHours,
       };
       if (category != null && category.isNotEmpty && category != 'All') {
         queryParams['category'] = category;
@@ -381,11 +481,11 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
   }
 
   @override
-  Future<List<CommentModel>> getComments(int reportId) async {
+  Future<List<CommentModel>> getComments(int reportId, {int? userId}) async {
     try {
       final response = await dio.get(
         '/api/reports/$reportId/comments',
-        options: _authOptions(),
+        options: _authOptions(userId: userId),
       );
 
       final data = response.data;
@@ -402,11 +502,30 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     }
   }
 
-  /// Attaches the stored bearer token (and optionally the user id header).
-  ///
-  /// The token is read straight out of memory — [LocalStore] loaded it during
-  /// startup — so every call in this class uses this instead of reopening
-  /// storage, which they each used to do.
+  @override
+  Future<String?> voteComment({
+    required int commentId,
+    required int userId,
+    required String type,
+  }) async {
+    try {
+      final response = await dio.post(
+        '/api/comments/$commentId/vote',
+        data: {'type': type},
+        options: _authOptions(userId: userId),
+      );
+
+      final data = response.data;
+      if (data is Map && data['data'] is Map) {
+        return (data['data'] as Map)['userVoteType'] as String?;
+      }
+      return null;
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Failed to vote on the comment');
+    }
+  }
+
   Options _authOptions({int? userId}) {
     final token = LocalStore.instance.getString(StorageKeys.authToken);
 

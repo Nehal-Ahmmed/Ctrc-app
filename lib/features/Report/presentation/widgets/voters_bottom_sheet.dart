@@ -68,7 +68,7 @@ class _VotersBottomSheetState extends State<VotersBottomSheet> with SingleTicker
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                // Handle bar
+                
                 const SizedBox(height: 8),
                 Container(
                   width: 40,
@@ -79,7 +79,7 @@ class _VotersBottomSheetState extends State<VotersBottomSheet> with SingleTicker
                   ),
                 ),
                 const SizedBox(height: 12),
-                // TabBar
+                
                 TabBar(
                   controller: _tabController,
                   labelColor: Colors.blue,
@@ -110,7 +110,7 @@ class _VotersBottomSheetState extends State<VotersBottomSheet> with SingleTicker
                   ],
                 ),
                 const Divider(height: 1),
-                // Tab Views
+                
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,

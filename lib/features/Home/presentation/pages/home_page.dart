@@ -41,13 +41,8 @@ class _HomePageState extends ConsumerState<HomePage> {
   final ReportLocalCache _cache = ReportLocalCache();
   StreamSubscription<Position>? _positionStreamSub;
 
-  /// True while what is on screen came off the device rather than the backend.
-  /// Drives the "showing saved reports" strip, so nothing old is mistaken for
-  /// the road as it is right now.
   bool _isShowingCache = false;
 
-  /// Same list the create sheet offers, so a filter chip always matches what
-  /// was actually filed.
   final List<String> _categories = ReportCategory.filterLabels;
 
   @override
@@ -57,12 +52,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     _initLocationTracking();
   }
 
-  /// Puts the last session back on screen before anything is asked of the GPS
-  /// or the network.
-  ///
-  /// The feed normally waits on both — a fix, then a backend that sleeps when
-  /// idle — and shows an empty state until they land. Neither is needed to
-  /// redraw what was here last time.
   void _restoreFromDevice() {
     final storedCategory = LocalStore.instance.getString(StorageKeys.feedCategory);
     if (storedCategory != null && _categories.contains(storedCategory)) {
@@ -74,8 +63,6 @@ class _HomePageState extends ConsumerState<HomePage> {
       _filter = FeedFilter.fromJson(Map<String, dynamic>.from(storedFilter));
     }
 
-    // Where the phone last was. The real fix replaces it seconds later, but it
-    // is enough to start fetching against immediately.
     _currentLocation = LastKnownLocation.read();
 
     final cached = _cache.read(
@@ -84,12 +71,8 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
     if (cached == null) return;
 
-    // The origin is still worth having even when the list is not — it is where
-    // to start fetching from.
     _currentLocation ??= cached.origin;
 
-    // Past the cutoff these are no longer road conditions, they are history.
-    // A jam from yesterday shown as the feed is worse than an empty one.
     if (cached.isOlderThan(ReportLocalCache.staleAfter)) return;
 
     _feedReports = cached.reports;
@@ -103,9 +86,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Future<void> _initLocationTracking() async {
-    // With a stored position there is something to ask the backend for right
-    // away, instead of after the radio answers — which indoors, on a cold
-    // start, can be a long wait.
+    
     if (_currentLocation != null) _fetchFeedData();
 
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -118,12 +99,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
     if (permission == LocationPermission.deniedForever) return;
 
-    // Fetch initial position immediately
     Position initialPosition = await Geolocator.getCurrentPosition();
     _updateLocationAndFetch(initialPosition);
 
-    // Listen to changes (e.g. moving in a car). 
-    // distanceFilter: 50 means we only get an update if the user moves > 50 meters
     _positionStreamSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
@@ -140,8 +118,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     setState(() {
       _currentLocation = point;
     });
-    // Kept for the next cold start, so the next launch begins where this one
-    // left off rather than nowhere.
+    
     unawaited(LastKnownLocation.save(point));
     _fetchFeedData();
   }
@@ -149,9 +126,6 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _fetchFeedData() async {
     if (_currentLocation == null) return;
 
-    // Piggybacks on the feed reload, which already happens whenever the phone
-    // moves or the radius preference changes — exactly when the set of map
-    // cells worth listening to would change too.
     final settings = ref.read(settingsProvider);
     unawaited(ref.read(fcmServiceProvider).syncTopics(
           latitude: _currentLocation!.latitude,
@@ -171,7 +145,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       final reports = await _remoteDataSource.getNearbyReports(
         lat: _currentLocation!.latitude,
         lng: _currentLocation!.longitude,
-        // Honours the "Report Radius" preference in Settings.
+        
         radius: ref.read(settingsProvider).reportRadius,
         category: _selectedCategory,
         userId: userId,
@@ -184,8 +158,6 @@ class _HomePageState extends ConsumerState<HomePage> {
           _isShowingCache = false;
         });
 
-        // What the next launch opens with, filed under whoever is signed in —
-        // these cards carry that person's saves and votes.
         unawaited(_cache.write(
           ReportLocalCache.feedBucket,
           reports,
@@ -193,7 +165,6 @@ class _HomePageState extends ConsumerState<HomePage> {
           origin: _currentLocation,
         ));
 
-        // Anything new near the user becomes an entry in the alert inbox.
         ref.read(notificationsProvider.notifier).ingest(
               reports,
               viewerLocation: _currentLocation,
@@ -256,7 +227,6 @@ class _HomePageState extends ConsumerState<HomePage> {
       return;
     }
 
-    // Save original state
     final originalReport = _feedReports[index];
 
     setState(() {
@@ -271,7 +241,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       );
     } catch (e, stack) {
       debugPrint('Error voting: $e\n$stack');
-      // Revert optimistic update on error
+      
       if (mounted) {
         setState(() {
            _feedReports[index] = originalReport;
@@ -299,14 +269,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// Signing in or out changes whose saves and votes these cards carry, so the
-  /// feed drops the old viewer's state immediately and refetches its own.
   void _onIdentityChanged() {
     if (!mounted) return;
 
-    // Whatever the new viewer has stored is a better starting point than the
-    // previous viewer's list with its saves and votes scrubbed off — but only
-    // if they have one.
     final cached = _cache.read(
       ReportLocalCache.feedBucket,
       userId: ref.read(authIdentityProvider),
@@ -322,7 +287,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // Changing the radius in Settings should reshape the feed straight away.
+    
     ref.listen<double>(
       settingsProvider.select((s) => s.reportRadius),
       (previous, next) {
@@ -330,8 +295,6 @@ class _HomePageState extends ConsumerState<HomePage> {
       },
     );
 
-    // Turning the alerts off should stop the pushes there and then, rather
-    // than at whenever the feed happens to reload next.
     ref.listen<bool>(
       settingsProvider.select((s) => s.nearbyAlertsEnabled),
       (previous, next) {
@@ -388,8 +351,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                             size: 48, color: Colors.grey[400]),
                         const SizedBox(height: 12),
                         Text(
-                          // With a filter on, "nothing within 5 km" would be a
-                          // lie — the reports are there, they were held back.
+                          
                           _filter.activeFilterCount > 0
                               ? strings.noMatchingReports
                               : _selectedCategory == ReportCategory.allLabel
@@ -428,10 +390,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// Marks the list as the stored one rather than the current one.
-  ///
-  /// Road conditions go out of date fast, so a cached feed has to say so —
-  /// otherwise an hour-old jam reads as a live one.
   Widget _buildCachedNotice(AppStrings strings) {
     return Container(
       width: double.infinity,
@@ -477,7 +435,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   setState(() {
                     _selectedCategory = category;
                   });
-                  // Deliberate choices, so they survive the app closing.
+                  
                   unawaited(LocalStore.instance
                       .setString(StorageKeys.feedCategory, category));
                   _fetchFeedData();
@@ -541,9 +499,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  /// Opens the filter sheet. Sits beside the composer because the two are the
-  /// same question from either end: what goes into the feed, and what comes
-  /// out of it.
   Widget _buildFilterButton() {
     final strings = ref.watch(appStringsProvider);
     final isActive = !_filter.isDefault;
@@ -571,8 +526,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 size: 22,
                 color: isActive ? Colors.blue : Colors.grey[700],
               ),
-              // Counts only what is being held back; a changed sort order
-              // hides nothing, so it does not earn a badge.
+              
               if (hidden > 0)
                 Positioned(
                   top: -6,
@@ -613,8 +567,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     unawaited(
       LocalStore.instance.setJson(StorageKeys.feedFilter, chosen.toJson()),
     );
-    // The new order and the new cut come from the query, so the list has to be
-    // fetched again rather than rearranged in place.
+    
     _fetchFeedData();
   }
 
@@ -627,7 +580,6 @@ class _HomePageState extends ConsumerState<HomePage> {
 
     final isCurrentlySaved = report.isSaved;
     
-    // Optimistic update
     setState(() {
       _feedReports[index] = report.copyWith(isSaved: !isCurrentlySaved);
     });
@@ -639,7 +591,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         await _remoteDataSource.saveReport(report.reportId, int.parse(user.user_id));
       }
     } catch (e) {
-      // Revert optimistic update on error
+      
       if (mounted) {
         setState(() {
           _feedReports[index] = report;

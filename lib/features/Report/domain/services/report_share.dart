@@ -1,21 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../models/comment_model.dart';
+import '../../../../core/utils/app_time.dart';
 import '../models/report_category.dart';
 import '../models/report_model.dart';
 
-/// Hands a report to the phone's own share sheet, which is what puts WhatsApp,
-/// Messenger, SMS, email and the rest in front of the user — the app does not
-/// need to know about any of them individually.
-///
-/// A warning is only worth passing on if the person receiving it can tell
-/// *where* the incident is, so the text always carries a map link built from
-/// the report's own coordinates.
 abstract final class ReportShare {
-  /// [origin] anchors the sheet to the button that opened it. Ignored
-  /// everywhere except iPad and Mac, where a popover needs something to point
-  /// at.
+  
   static Future<void> share(ReportModel report, {Rect? origin}) {
     return SharePlus.instance.share(
       ShareParams(
@@ -26,12 +17,10 @@ abstract final class ReportShare {
     );
   }
 
-  /// Split out from [share] so the wording can be checked without a share
-  /// sheet being involved.
   @visibleForTesting
   static String buildMessage(ReportModel report) {
     final category = ReportCategory.fromLabel(report.category);
-    final createdAt = CommentModel.parseTimestamp(report.createdAt);
+    final createdAt = AppTime.parseTimestamp(report.createdAt);
 
     final lines = <String>[
       '${category.label}: ${report.title}',
@@ -51,7 +40,7 @@ abstract final class ReportShare {
     }
 
     lines.add([
-      if (createdAt != null) 'Reported ${formatRelativeTime(createdAt)}',
+      if (createdAt != null) 'Reported ${AppTime.formatRelativeTime(createdAt)}',
       _statusLine(report),
     ].join(' · '));
 
@@ -62,7 +51,6 @@ abstract final class ReportShare {
     return lines.join('\n');
   }
 
-  /// Opens in whatever map app the recipient has, rather than assuming one.
   static String mapLink(double latitude, double longitude) =>
       'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude';
 

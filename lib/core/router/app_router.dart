@@ -18,14 +18,12 @@ import '../../features/Report/domain/models/report_model.dart';
 import '../../features/Report/presentation/pages/my_reports_page.dart';
 import '../../features/Report/presentation/pages/report_details_page.dart';
 import '../../features/Report/presentation/pages/saved_posts_page.dart';
+import '../../features/Report/presentation/pages/sub_report_details_page.dart';
 import '../../features/Splash/presentation/pages/splash_page.dart';
 import '../../features/Auth/presentation/providers/auth_provider.dart';
 import '../widgets/main_scaffold.dart';
 import 'root_navigator_key.dart';
 
-/// Pages that only mean anything with an account behind them. A guest who
-/// lands on one — by deep link, or by signing out while it is open — is sent
-/// back to the feed rather than left staring at a locked page.
 const _authOnlyRoutes = {
   '/my-reports',
   '/saved-posts',
@@ -33,12 +31,8 @@ const _authOnlyRoutes = {
   '/change-password',
 };
 
-/// Pages that exist only to get an account, so there is nothing for a
-/// signed-in user to do on them.
 const _guestOnlyRoutes = {'/sign-in', '/sign-up', '/forgot-password'};
 
-/// Re-runs the router's redirect whenever the session changes, so signing out
-/// tears down every account-only page still sitting on the stack.
 class _AuthRefreshListenable extends ChangeNotifier {
   _AuthRefreshListenable(Ref ref) {
     _subscription = ref.listen<bool>(
@@ -66,8 +60,6 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final status = ref.read(authProvider).status;
 
-      // Nothing is decided until the stored token has been checked; bouncing
-      // now would log out anyone who deep-links straight into the app.
       if (status == AuthStatus.uninitialized || status == AuthStatus.loading) {
         return null;
       }
@@ -136,7 +128,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/settings',
-        parentNavigatorKey: rootNavigatorKey, // Covers bottom nav
+        parentNavigatorKey: rootNavigatorKey, 
         builder: (context, state) => const SettingsPage(),
       ),
       GoRoute(
@@ -181,8 +173,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
 
-          // Callers may pass the already-loaded report (and the viewer's
-          // position) so the page can paint before the network call returns.
           final extra = state.extra;
           ReportModel? report;
           LatLng? viewerLocation;
@@ -200,11 +190,18 @@ final routerProvider = Provider<GoRouter>((ref) {
           );
         },
       ),
+      GoRoute(
+        path: '/sub-report/:id',
+        name: 'subReportDetails',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+          return SubReportDetailsPage(subReportId: id);
+        },
+      ),
     ],
   );
 
-  // The router unhooks itself from the listenable first, so the listenable is
-  // still alive when it does.
   ref.onDispose(router.dispose);
   ref.onDispose(refresh.dispose);
 

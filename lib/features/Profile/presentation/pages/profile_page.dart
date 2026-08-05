@@ -72,9 +72,6 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     }
   }
 
-  /// The reports and the form fields both belong to whoever was signed in, so
-  /// a change of identity wipes them rather than letting them bleed into the
-  /// next session.
   void _onIdentityChanged() {
     if (!mounted) return;
     final user = ref.read(authProvider).user;
@@ -296,7 +293,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                   color: Colors.white,
                   child: Column(
                     children: [
-                      // Cover header style
+                      
                       SizedBox(
                         height: 170,
                         child: Stack(

@@ -8,7 +8,6 @@ class SettingsState {
   final double reportRadius;
   final String languageCode;
 
-  /// Collect in-app alerts for incidents reported inside [reportRadius].
   final bool nearbyAlertsEnabled;
 
   const SettingsState({
@@ -40,10 +39,6 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
 
   final LocalStore _store;
 
-  /// Read before the first frame rather than after it. Loading the theme
-  /// asynchronously meant the app painted in the system theme and then snapped
-  /// to the chosen one — a visible flash on every launch for anyone who had
-  /// picked dark mode.
   static SettingsState _restore(LocalStore store) {
     final themeIndex = store.getInt(StorageKeys.themeMode);
 

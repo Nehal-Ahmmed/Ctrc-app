@@ -5,11 +5,8 @@ import 'package:flutter/material.dart';
 import '../errors/app_error.dart';
 import '../router/root_navigator_key.dart';
 
-/// Which flavour of toast to show — sets the icon and accent colour.
 enum ToastVariant { success, error, warning, info }
 
-/// An optional button on a toast, for the one case where a failure has an
-/// obvious next step ("Retry").
 class ToastAction {
   const ToastAction({required this.label, required this.onPressed});
 
@@ -17,25 +14,8 @@ class ToastAction {
   final VoidCallback onPressed;
 }
 
-/// A small card that slides in from the top, says one thing, and leaves.
-///
-/// Replaces the raw `SnackBar(content: Text('Failed: $e'))` pattern: pass the
-/// thrown object straight to [AppToast.error] and [AppError] turns it into a
-/// readable sentence, whether it came from Dio, the backend, or the database.
-///
-/// ```dart
-/// try {
-///   await save();
-///   AppToast.success(context, 'Report posted');
-/// } catch (e) {
-///   AppToast.error(context, e);
-/// }
-/// ```
-///
-/// It renders in the root [Overlay], so it floats above bottom sheets, dialogs
-/// and the bottom navigation bar, and survives page pushes.
 abstract final class AppToast {
-  /// How many stack up before the oldest is pushed out.
+  
   static const _maxVisible = 3;
 
   static const _defaultDuration = Duration(seconds: 3);
@@ -46,10 +26,6 @@ abstract final class AppToast {
   static OverlayState? _overlay;
   static int _nextId = 0;
 
-  /// Shows any thrown object as a readable error card.
-  ///
-  /// [error] can be a `DioException`, a `Failure`, an [AppError], a plain
-  /// `Exception`, or a string — see [AppError.from].
   static void error(
     BuildContext? context,
     Object? error, {
@@ -136,16 +112,12 @@ abstract final class AppToast {
     );
   }
 
-  /// Clears anything on screen — useful before navigating away.
   static void dismissAll() => _toasts.value = const [];
-
-  // --- overlay plumbing ------------------------------------------------------
 
   static void _push(BuildContext? context, _ToastData data) {
     final overlay = _resolveOverlay(context);
     if (overlay == null) {
-      // No UI yet (very early startup, or a headless test). Losing the toast is
-      // better than crashing on the way to reporting a problem.
+      
       debugPrint('AppToast: no overlay available — "${data.message}"');
       return;
     }
@@ -157,8 +129,7 @@ abstract final class AppToast {
     _attach();
 
     final current = _toasts.value;
-    // The same failure often fires from several widgets at once (a feed and its
-    // cards both refreshing, say). Showing it three times helps nobody.
+    
     if (current.any((t) => t.message == data.message && t.title == data.title)) {
       return;
     }
@@ -195,8 +166,7 @@ abstract final class AppToast {
 
   static void _remove(int id) {
     _toasts.value = _toasts.value.where((t) => t.id != id).toList();
-    // Keep the entry attached; re-inserting on every toast would restart the
-    // animations of anything still on screen.
+    
   }
 }
 
@@ -218,7 +188,6 @@ class _ToastData {
   final ToastAction? action;
 }
 
-/// The full-width strip at the top of the screen that holds the cards.
 class _ToastLayer extends StatelessWidget {
   const _ToastLayer();
 
@@ -277,7 +246,6 @@ class _ToastCardState extends State<_ToastCard>
     reverseDuration: const Duration(milliseconds: 180),
   );
 
-  /// Drives the thin bar that drains as the toast's time runs out.
   late final AnimationController _life = AnimationController(
     vsync: this,
     duration: widget.data.duration,
@@ -330,7 +298,7 @@ class _ToastCardState extends State<_ToastCard>
           padding: const EdgeInsets.only(bottom: 8),
           child: GestureDetector(
             onTap: _dismiss,
-            // A flick upwards gets rid of it, the way a notification does.
+            
             onVerticalDragEnd: (details) {
               if ((details.primaryVelocity ?? 0) < -80) _dismiss();
             },
@@ -356,7 +324,7 @@ class _ToastCardState extends State<_ToastCard>
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Accent spine down the leading edge.
+                          
                           Container(width: 4, color: palette.accent),
                           Expanded(
                             child: Padding(
@@ -425,7 +393,7 @@ class _ToastCardState extends State<_ToastCard>
                         ],
                       ),
                     ),
-                    // Time-remaining bar.
+                    
                     AnimatedBuilder(
                       animation: _life,
                       builder: (context, _) => Align(
@@ -460,7 +428,6 @@ class _ActionButton extends StatelessWidget {
   final ToastAction action;
   final Color accent;
 
-  /// Runs after the action, so the card gets out of the way once tapped.
   final VoidCallback onTapped;
 
   @override
@@ -474,7 +441,7 @@ class _ActionButton extends StatelessWidget {
         },
         style: TextButton.styleFrom(
           foregroundColor: accent,
-          // No left padding, so the label lines up with the message above it.
+          
           padding: const EdgeInsetsDirectional.only(end: 8),
           minimumSize: const Size(0, 30),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,

@@ -4,18 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ctrc/core/l10n/app_strings.dart';
 import 'package:ctrc/features/Report/domain/models/feed_filter.dart';
 
-/// Picks how the feed is ordered and which reports it holds back.
-///
-/// The choices are edited on a copy and only handed back when the sheet is
-/// confirmed, so backing out leaves the feed exactly as it was rather than
-/// having quietly refetched it once per tap.
 class FeedFilterSheet extends ConsumerStatefulWidget {
   const FeedFilterSheet({super.key, required this.filter});
 
   final FeedFilter filter;
 
-  /// Opens the sheet and resolves to the chosen filter, or null if it was
-  /// dismissed without confirming.
   static Future<FeedFilter?> show(BuildContext context, FeedFilter current) {
     return showModalBottomSheet<FeedFilter>(
       context: context,
@@ -42,8 +35,7 @@ class _FeedFilterSheetState extends ConsumerState<FeedFilterSheet> {
     return SafeArea(
       top: false,
       child: ConstrainedBox(
-        // Tall enough to show the sort options without scrolling on a normal
-        // phone, never so tall that the feed disappears behind it.
+        
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(context).size.height * 0.85,
         ),
@@ -174,7 +166,7 @@ class _FeedFilterSheetState extends ConsumerState<FeedFilterSheet> {
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
             ),
           ),
-          // Only worth offering once there is something to undo.
+          
           if (!_draft.isDefault)
             TextButton(
               onPressed: () => setState(() => _draft = FeedFilter.initial),

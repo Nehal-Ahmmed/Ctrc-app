@@ -10,7 +10,6 @@ import '../../domain/models/app_notification.dart';
 class NotificationState {
   final List<AppNotification> items;
 
-  /// False until the stored history has been read back off disk.
   final bool isLoaded;
 
   const NotificationState({this.items = const [], this.isLoaded = false});
@@ -25,22 +24,13 @@ class NotificationState {
   }
 }
 
-/// Turns the nearby-incident feed into an alert inbox.
-///
-/// Pages that already fetch nearby reports hand them to [ingest]; anything the
-/// user has not been told about yet becomes a notification. Nothing extra is
-/// fetched, so this costs no additional network traffic.
 class NotificationController extends StateNotifier<NotificationState> {
   static const _maxItems = 60;
 
   final LocalStore _store;
 
-  /// Report ids the user has already been shown. Kept separate from [items] so
-  /// clearing the list does not resurrect every old incident.
   final Set<int> _seen = <int>{};
 
-  /// Nothing has been ingested yet on this install — seed silently instead of
-  /// dumping every existing incident into the inbox at once.
   bool _isFirstIngest = true;
 
   NotificationController({LocalStore? store})
@@ -49,9 +39,6 @@ class NotificationController extends StateNotifier<NotificationState> {
     _restore();
   }
 
-  /// Synchronous, and that matters: [ingest] drops everything handed to it
-  /// until the history is back. When this read was asynchronous the feed's very
-  /// first fetch usually won the race and its incidents were thrown away.
   void _restore() {
     final seen = _store.getStringList(StorageKeys.notificationSeenIds) ?? const [];
     _seen.addAll(seen.map(int.tryParse).whereType<int>());
@@ -75,7 +62,7 @@ class NotificationController extends StateNotifier<NotificationState> {
       StorageKeys.notificationItems,
       state.items.map((n) => n.toJson()).toList(),
     );
-    // Bound the seen set so it cannot grow without limit on a busy map.
+    
     final seen = _seen.toList();
     final trimmed = seen.length > 500 ? seen.sublist(seen.length - 500) : seen;
     await _store.setStringList(
@@ -84,11 +71,6 @@ class NotificationController extends StateNotifier<NotificationState> {
     );
   }
 
-  /// Records any previously unseen incidents from [reports].
-  ///
-  /// [enabled] mirrors the "Nearby Incident Alerts" preference — when off the
-  /// reports are still marked as seen so turning it back on does not replay
-  /// everything that happened in the meantime.
   Future<void> ingest(
     List<ReportModel> reports, {
     LatLng? viewerLocation,
@@ -105,7 +87,6 @@ class NotificationController extends StateNotifier<NotificationState> {
       _seen.add(report.reportId);
       changed = true;
 
-      // Your own reports, and anything already expired, are not news.
       if (report.userId == viewerUserId) continue;
       if (!IncidentSeverity.isActive(report)) continue;
       if (_isFirstIngest || !enabled) continue;
@@ -182,7 +163,6 @@ final notificationsProvider =
   (ref) => NotificationController(),
 );
 
-/// Convenience selector for the app-bar badge.
 final unreadNotificationCountProvider = Provider<int>(
   (ref) => ref.watch(notificationsProvider).unreadCount,
 );

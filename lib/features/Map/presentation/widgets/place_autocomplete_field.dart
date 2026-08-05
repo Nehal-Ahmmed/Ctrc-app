@@ -8,11 +8,6 @@ import '../../data/datasources/geo_request_cache.dart';
 import '../../data/datasources/geocoding_datasource.dart';
 import '../../domain/models/place_suggestion.dart';
 
-/// A text field that suggests places while you type.
-///
-/// Suggestions are rendered inline (as a list right under the field) rather
-/// than in an overlay so the widget composes inside both the map's floating
-/// search card and the route planner sheet.
 class PlaceAutocompleteField extends StatefulWidget {
   final TextEditingController controller;
   final GeocodingDataSource geocoder;
@@ -24,7 +19,6 @@ class PlaceAutocompleteField extends StatefulWidget {
   final ValueChanged<PlaceSuggestion> onSelected;
   final VoidCallback? onCleared;
 
-  /// Optional shortcut row, e.g. "Use my current location".
   final Widget? leadingShortcut;
 
   const PlaceAutocompleteField({
@@ -55,8 +49,6 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
   bool _suppressNextQuery = false;
   String? _error;
 
-  /// A rate limit is temporary, so it reads as a gentle notice rather than a
-  /// red failure.
   bool _isRateLimited = false;
 
   late final FocusNode _focusNode;
@@ -166,7 +158,6 @@ class _PlaceAutocompleteFieldState extends State<PlaceAutocompleteField> {
     widget.onSelected(suggestion);
   }
 
-  /// Lets the parent close the suggestion list, e.g. after a shortcut is used.
   void clearSuggestions({String? text}) {
     _debounceTimer?.cancel();
     _cancelToken?.cancel();

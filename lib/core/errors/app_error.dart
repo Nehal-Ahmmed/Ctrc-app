@@ -4,9 +4,6 @@ import 'package:dio/dio.dart';
 
 import 'failures.dart';
 
-/// What went wrong, in broad strokes. The toast picks its icon and colour from
-/// this, and callers can use [AppError.isRetryable] to decide whether offering
-/// a "Retry" makes any sense.
 enum AppErrorKind {
   network,
   timeout,
@@ -18,13 +15,6 @@ enum AppErrorKind {
   unknown,
 }
 
-/// A thrown object turned into something a person can read.
-///
-/// Anything the app can throw — a [DioException] from the backend, a [Failure]
-/// from a repository, a Postgres complaint that leaked through the server's
-/// catch-all handler, or a plain `Exception('...')` — goes in one side and a
-/// short title plus one clean sentence comes out the other. Nothing here ever
-/// puts a stack trace, a class name, or a SQL fragment on screen.
 class AppError {
   const AppError({
     required this.title,
@@ -38,10 +28,8 @@ class AppError {
   final String message;
   final AppErrorKind kind;
 
-  /// HTTP status behind the failure, when there was one.
   final int? statusCode;
 
-  /// The original object, kept for logging — never shown to the user.
   final Object? raw;
 
   bool get isRetryable =>
@@ -49,7 +37,6 @@ class AppError {
       kind == AppErrorKind.timeout ||
       kind == AppErrorKind.server;
 
-  /// The single entry point. Safe to call with literally anything.
   factory AppError.from(Object? error) {
     if (error is AppError) return error;
     if (error is DioException) return _fromDio(error);
@@ -72,13 +59,10 @@ class AppError {
     return _fromText(error?.toString(), raw: error);
   }
 
-  /// Convenience for `AppError.from(e).message`.
   static String messageOf(Object? error) => AppError.from(error).message;
 
   @override
   String toString() => '$title: $message';
-
-  // --- builders --------------------------------------------------------------
 
   static AppError _fromDio(DioException e) {
     switch (e.type) {
@@ -122,7 +106,7 @@ class AppError {
         return _fromResponse(e.response, raw: e);
 
       case DioExceptionType.unknown:
-        // Socket / DNS failures usually land here wrapped in `error`.
+        
         final inner = '${e.error ?? ''} ${e.message ?? ''}'.toLowerCase();
         if (inner.contains('socketexception') ||
             inner.contains('failed host lookup') ||
@@ -257,10 +241,7 @@ class AppError {
   }
 
   static AppError _fromText(String? text, {Object? raw}) {
-    // Dio's own wording for a failed call ("Http status error [500]",
-    // "The request returned an invalid status code of 500") carries a status
-    // code but reads like a debug log, so translate it the same way a real
-    // response would be.
+    
     final status = RegExp(r'status(?: error)?\s*(?:\[|code of )(\d{3})')
         .firstMatch(text?.toLowerCase() ?? '')
         ?.group(1);
@@ -322,19 +303,12 @@ class AppError {
     );
   }
 
-  // --- text cleanup ----------------------------------------------------------
-
-  /// Digs the human part out of a backend response body.
-  ///
-  /// The API answers with `ApiResponse` — `{success, data, message}` — but
-  /// third-party services (Cloudinary, the routing provider) and proxies use
-  /// their own shapes, so a few likely keys are tried.
   static String? _serverMessage(dynamic data) {
     if (data == null) return null;
 
     if (data is String) {
       final text = data.trim();
-      if (text.isEmpty || text.startsWith('<')) return null; // HTML error page
+      if (text.isEmpty || text.startsWith('<')) return null; 
       return text;
     }
 
@@ -342,12 +316,12 @@ class AppError {
       for (final key in const ['message', 'error', 'errorMessage', 'detail']) {
         final value = data[key];
         if (value is String && value.trim().isNotEmpty) return value.trim();
-        // Some gateways nest it: {"error": {"message": "..."}}
+        
         if (value is Map && value['message'] is String) {
           return (value['message'] as String).trim();
         }
       }
-      // Field-level validation maps: {"errors": {"email": "is required"}}
+      
       final errors = data['errors'];
       if (errors is Map && errors.isNotEmpty) {
         return errors.entries
@@ -360,16 +334,12 @@ class AppError {
     return null;
   }
 
-  /// Turns raw error text into one clean sentence, or null when there is
-  /// nothing worth showing (stack traces, Java class names, SQL).
   static String? _humanize(String? input) {
     if (input == null) return null;
 
     var text = input.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (text.isEmpty) return null;
 
-    // Peel off Dart's and the app's own wrappers, however many are stacked:
-    // "Exception: Sign in failed: Exception: Wrong password" -> "Wrong password"
     final wrappers = RegExp(
       r'^(Exception|_Exception|Error|StateError|ArgumentError|HttpException|DioException(\s*\[[^\]]*\])?)\s*:\s*',
       caseSensitive: false,
@@ -384,7 +354,6 @@ class AppError {
       if (text == before) break;
     }
 
-    // The backend's catch-all handler prefixes root causes with this.
     text = text
         .replaceFirst(RegExp(r'^something went wrong\s*:\s*', caseSensitive: false), '')
         .trim();
@@ -396,20 +365,16 @@ class AppError {
 
     if (_looksTechnical(text)) return null;
 
-    // One sentence is plenty for a toast.
     if (text.length > 160) {
       final cut = text.lastIndexOf(' ', 157);
       text = '${text.substring(0, cut > 40 ? cut : 157).trimRight()}…';
     }
 
-    // Server messages are often lowercase ("invalid request"); tidy that up.
     text = text[0].toUpperCase() + text.substring(1);
     if (!RegExp(r'[.!?…]$').hasMatch(text)) text = '$text.';
     return text;
   }
 
-  /// Maps database complaints onto something a user can act on. These reach the
-  /// app because the server's catch-all handler forwards the root cause.
   static String? _databaseMessage(String text) {
     final lower = text.toLowerCase();
 
@@ -437,7 +402,7 @@ class AppError {
         lower.contains('too many connections')) {
       return 'The database is busy. Please try again in a moment.';
     }
-    // Anything else that is clearly the database talking.
+    
     if (lower.contains('sqlexception') ||
         lower.contains('psqlexception') ||
         lower.contains('jdbc') ||
@@ -449,7 +414,6 @@ class AppError {
     return null;
   }
 
-  /// True when the text is machinery talking, not something to show a user.
   static bool _looksTechnical(String text) {
     if (text.length > 400) return true;
     return RegExp(
