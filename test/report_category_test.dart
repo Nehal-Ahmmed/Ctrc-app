@@ -5,8 +5,7 @@ import 'package:ctrc/features/Report/domain/models/report_category.dart';
 void main() {
   group('ReportCategory', () {
     test('the feed filter offers every category the create sheet can file', () {
-      // The two lists used to be written out separately and had drifted, so a
-      // report filed as "Road Condition" could never be found by any chip.
+      
       for (final label in ReportCategory.labels) {
         expect(ReportCategory.filterLabels, contains(label));
       }

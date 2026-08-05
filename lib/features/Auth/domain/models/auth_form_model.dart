@@ -29,16 +29,16 @@ class SignUpFormModel {
   final String email;
   final String password;
   final String confirmPassword;
-  final String? address;   // Optional — null if not provided
-  final String? image_url; // Optional — null if not provided
+  final String? address;   
+  final String? image_url; 
 
   const SignUpFormModel({
     required this.name,
     required this.email,
     required this.password,
     required this.confirmPassword,
-    this.address,   // nullable
-    this.image_url, // nullable
+    this.address,   
+    this.image_url, 
   });
 
   String? validateName() {
@@ -66,15 +66,13 @@ class SignUpFormModel {
     return null;
   }
 
-  // address and image_url are optional — no validation required
-
   Map<String, String?> validateAll() {
     return {
       'name': validateName(),
       'email': validateEmail(),
       'password': validatePassword(),
       'confirmPassword': validateConfirmPassword(),
-      // address and image_url are optional; excluded from required validation
+      
     };
   }
 

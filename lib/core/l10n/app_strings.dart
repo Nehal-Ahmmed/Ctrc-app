@@ -2,14 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/settings_provider.dart';
 
-/// User-facing text, in the language picked in Settings.
-///
-/// The Language setting used to be saved and then ignored — nothing in the app
-/// read it. Widgets now take their labels from here via [appStringsProvider].
-///
-/// Incident *category* names are deliberately not translated: those exact
-/// strings are the values stored in the database and matched by the feed
-/// filter, so translating them would break filtering.
 abstract class AppStrings {
   const AppStrings();
 
@@ -18,11 +10,9 @@ abstract class AppStrings {
   static AppStrings of(String languageCode) =>
       languageCode == 'bn' ? const BanglaStrings() : const EnglishStrings();
 
-  /// Name of a language in its own script, for the Settings dropdown.
   static String languageName(String code) =>
       code == 'bn' ? 'বাংলা (Bangla)' : 'English';
 
-  // --- chrome ---------------------------------------------------------------
   String get appTitle;
   String get drawerHeadline;
   String get navHome;
@@ -31,25 +21,24 @@ abstract class AppStrings {
   String get notifications;
   String get settings;
 
-  // --- shared actions -------------------------------------------------------
   String get logIn;
   String get signUp;
   String get signOut;
   String get logOut;
+  String get logOutQuestion;
+  String get logOutWarning;
+  String get signedOut;
   String get cancel;
   String get save;
   String get refresh;
   String get retry;
 
-  // --- drawer ---------------------------------------------------------------
   String get myReports;
   String get savedPosts;
   String get mapSection;
   String get alertRadius;
   String get unknownLocation;
 
-  // --- home feed ------------------------------------------------------------
-  String get localFeed;
   String get whatsHappeningNearby;
   String get categoryAll;
   String get waitingForGps;
@@ -59,7 +48,38 @@ abstract class AppStrings {
   String noIncidentsWithin(int km);
   String noCategoryIncidentsWithin(String category, int km);
 
-  // --- reports --------------------------------------------------------------
+  String get filterAndSort;
+  String get sortBy;
+  String get showOnly;
+  String get showResults;
+  String get resetAll;
+  String get sortNearest;
+  String get sortNewest;
+  String get sortOldest;
+  String get sortTop;
+  String get sortDiscussed;
+  String get sortConfirmed;
+  String get verificationLabel;
+  String get statusAny;
+  String get statusVerified;
+  String get statusUnverified;
+  String get statusDisputed;
+  String get evidenceLabel;
+  String get evidenceAny;
+  String get evidenceSeen;
+  String get evidenceHeard;
+  String get evidenceGuessed;
+  String get postedLabel;
+  String get postedAnytime;
+  String get postedLastHour;
+  String get postedLast6Hours;
+  String get postedLastDay;
+  String get postedLastWeek;
+  String get withPhotoOnly;
+  String get noMatchingReports;
+
+  String get showingSavedReports;
+
   String get reportDetails;
   String get reportNewIncident;
   String get addToThisIncident;
@@ -75,7 +95,6 @@ abstract class AppStrings {
   String get savePost;
   String get removeFromSaved;
 
-  // --- settings -------------------------------------------------------------
   String get accountAndSecurity;
   String get editProfile;
   String get changePassword;
@@ -95,7 +114,6 @@ abstract class AppStrings {
   String get privacyPolicy;
   String get appVersion;
 
-  // --- profile --------------------------------------------------------------
   String get profileInfo;
   String get name;
   String get email;
@@ -103,7 +121,6 @@ abstract class AppStrings {
   String get noAddressSpecified;
   String get signInToViewProfile;
 
-  // --- auth -----------------------------------------------------------------
   String get welcomeBack;
   String get signInToYourAccount;
   String get password;
@@ -112,7 +129,6 @@ abstract class AppStrings {
   String get alreadyHaveAnAccount;
   String get createAccount;
 
-  // --- notifications --------------------------------------------------------
   String get markAllRead;
   String get clearAll;
   String get noNotificationsYet;
@@ -145,6 +161,13 @@ class EnglishStrings extends AppStrings {
   @override
   String get logOut => 'Log Out';
   @override
+  String get logOutQuestion => 'Log Out?';
+  @override
+  String get logOutWarning =>
+      'You will need to sign in again to report, vote or comment.';
+  @override
+  String get signedOut => 'You are now browsing as a guest.';
+  @override
   String get cancel => 'Cancel';
   @override
   String get save => 'Save';
@@ -165,8 +188,6 @@ class EnglishStrings extends AppStrings {
   String get unknownLocation => 'Unknown Location';
 
   @override
-  String get localFeed => 'Local Feed';
-  @override
   String get whatsHappeningNearby => "What's happening nearby?";
   @override
   String get categoryAll => 'All';
@@ -183,6 +204,67 @@ class EnglishStrings extends AppStrings {
   @override
   String noCategoryIncidentsWithin(String category, int km) =>
       'No "$category" reports within $km km.';
+
+  @override
+  String get filterAndSort => 'Filter & sort';
+  @override
+  String get sortBy => 'Sort by';
+  @override
+  String get showOnly => 'Show only';
+  @override
+  String get showResults => 'Show results';
+  @override
+  String get resetAll => 'Reset';
+  @override
+  String get sortNearest => 'Nearest first';
+  @override
+  String get sortNewest => 'Newest first';
+  @override
+  String get sortOldest => 'Oldest first';
+  @override
+  String get sortTop => 'Most upvoted';
+  @override
+  String get sortDiscussed => 'Most discussed';
+  @override
+  String get sortConfirmed => 'Most confirmed';
+  @override
+  String get verificationLabel => 'Verification';
+  @override
+  String get statusAny => 'Any';
+  @override
+  String get statusVerified => 'Verified';
+  @override
+  String get statusUnverified => 'Not verified yet';
+  @override
+  String get statusDisputed => 'Disputed';
+  @override
+  String get evidenceLabel => 'How it was known';
+  @override
+  String get evidenceAny => 'Any';
+  @override
+  String get evidenceSeen => 'Seen first hand';
+  @override
+  String get evidenceHeard => 'Heard from others';
+  @override
+  String get evidenceGuessed => 'A guess';
+  @override
+  String get postedLabel => 'Posted';
+  @override
+  String get postedAnytime => 'Any time';
+  @override
+  String get postedLastHour => 'Last hour';
+  @override
+  String get postedLast6Hours => 'Last 6 hours';
+  @override
+  String get postedLastDay => 'Last 24 hours';
+  @override
+  String get postedLastWeek => 'Last 7 days';
+  @override
+  String get withPhotoOnly => 'With a photo only';
+  @override
+  String get noMatchingReports => 'No reports match these filters.';
+  @override
+  String get showingSavedReports => 'Showing reports saved from your last visit.';
 
   @override
   String get reportDetails => 'Report details';
@@ -317,6 +399,13 @@ class BanglaStrings extends AppStrings {
   @override
   String get logOut => 'লগ আউট';
   @override
+  String get logOutQuestion => 'লগ আউট করবেন?';
+  @override
+  String get logOutWarning =>
+      'রিপোর্ট, ভোট বা মন্তব্য করতে আবার সাইন ইন করতে হবে।';
+  @override
+  String get signedOut => 'আপনি এখন অতিথি হিসেবে ব্রাউজ করছেন।';
+  @override
   String get cancel => 'বাতিল';
   @override
   String get save => 'সংরক্ষণ';
@@ -337,8 +426,6 @@ class BanglaStrings extends AppStrings {
   String get unknownLocation => 'অজানা অবস্থান';
 
   @override
-  String get localFeed => 'স্থানীয় ফিড';
-  @override
   String get whatsHappeningNearby => 'আশেপাশে কী ঘটছে?';
   @override
   String get categoryAll => 'সব';
@@ -356,6 +443,68 @@ class BanglaStrings extends AppStrings {
   @override
   String noCategoryIncidentsWithin(String category, int km) =>
       '$km কিমির মধ্যে "$category" ধরনের কোনো রিপোর্ট নেই।';
+
+  @override
+  String get filterAndSort => 'ফিল্টার ও সাজানো';
+  @override
+  String get sortBy => 'যেভাবে সাজানো হবে';
+  @override
+  String get showOnly => 'শুধু দেখাও';
+  @override
+  String get showResults => 'ফলাফল দেখুন';
+  @override
+  String get resetAll => 'রিসেট';
+  @override
+  String get sortNearest => 'নিকটতম আগে';
+  @override
+  String get sortNewest => 'নতুন আগে';
+  @override
+  String get sortOldest => 'পুরনো আগে';
+  @override
+  String get sortTop => 'সবচেয়ে বেশি আপভোট';
+  @override
+  String get sortDiscussed => 'সবচেয়ে বেশি আলোচিত';
+  @override
+  String get sortConfirmed => 'সবচেয়ে বেশি নিশ্চিত';
+  @override
+  String get verificationLabel => 'যাচাই';
+  @override
+  String get statusAny => 'যেকোনো';
+  @override
+  String get statusVerified => 'যাচাইকৃত';
+  @override
+  String get statusUnverified => 'এখনো যাচাই হয়নি';
+  @override
+  String get statusDisputed => 'বিতর্কিত';
+  @override
+  String get evidenceLabel => 'কীভাবে জানা গেছে';
+  @override
+  String get evidenceAny => 'যেকোনো';
+  @override
+  String get evidenceSeen => 'নিজে দেখেছি';
+  @override
+  String get evidenceHeard => 'অন্যদের থেকে শোনা';
+  @override
+  String get evidenceGuessed => 'অনুমান';
+  @override
+  String get postedLabel => 'কখন পোস্ট হয়েছে';
+  @override
+  String get postedAnytime => 'যেকোনো সময়';
+  @override
+  String get postedLastHour => 'গত ১ ঘণ্টা';
+  @override
+  String get postedLast6Hours => 'গত ৬ ঘণ্টা';
+  @override
+  String get postedLastDay => 'গত ২৪ ঘণ্টা';
+  @override
+  String get postedLastWeek => 'গত ৭ দিন';
+  @override
+  String get withPhotoOnly => 'শুধু ছবিসহ রিপোর্ট';
+  @override
+  String get noMatchingReports => 'এই ফিল্টারে কোনো রিপোর্ট পাওয়া যায়নি।';
+  @override
+  String get showingSavedReports =>
+      'গতবারের সংরক্ষিত রিপোর্ট দেখানো হচ্ছে।';
 
   @override
   String get reportDetails => 'রিপোর্টের বিবরণ';
@@ -462,7 +611,6 @@ class BanglaStrings extends AppStrings {
       'এখনো কোনো সতর্কতা নেই।\nআপনার কাছাকাছি নতুন ঘটনা রিপোর্ট হলে জানানো হবে।';
 }
 
-/// Strings for the currently selected language.
 final appStringsProvider = Provider<AppStrings>((ref) {
   final code = ref.watch(settingsProvider.select((s) => s.languageCode));
   return AppStrings.of(code);

@@ -1,9 +1,13 @@
+import '../../../../core/utils/app_time.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ctrc/core/l10n/app_strings.dart';
+import 'package:ctrc/core/widgets/app_toast.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/comment_model.dart';
+import 'package:ctrc/features/Report/domain/services/vote_toggle.dart';
+import 'package:ctrc/features/Report/presentation/widgets/comment_vote_bar.dart';
 
 class CommentsBottomSheet extends ConsumerStatefulWidget {
   final int reportId;
@@ -40,9 +44,44 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
     super.dispose();
   }
 
+  int? get _currentUserId {
+    final user = ref.read(authProvider).user;
+    if (user == null) return null;
+    return int.tryParse(user.user_id);
+  }
+
+  Future<void> _voteComment(int index, String type) async {
+    final userId = _currentUserId;
+    if (userId == null) {
+      AppToast.info(context, 'Please log in to vote on a comment');
+      return;
+    }
+    if (index < 0 || index >= _comments.length) return;
+
+    final original = _comments[index];
+    setState(() => _comments[index] = VoteToggle.applyToComment(original, type));
+
+    try {
+      final serverVote = await _remoteDataSource.voteComment(
+        commentId: original.commentId,
+        userId: userId,
+        type: type,
+      );
+      if (!mounted) return;
+      setState(() => _comments[index] = VoteToggle.withVote(original, serverVote));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _comments[index] = original);
+      AppToast.error(context, e, title: 'Vote not saved');
+    }
+  }
+
   Future<void> _fetchComments() async {
     try {
-      final comments = await _remoteDataSource.getComments(widget.reportId);
+      final comments = await _remoteDataSource.getComments(
+        widget.reportId,
+        userId: _currentUserId,
+      );
       if (mounted) {
         setState(() {
           _comments = comments;
@@ -55,9 +94,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load comments: $e')),
-        );
+        AppToast.error(context, e, title: 'Could not load comments');
       }
     }
   }
@@ -80,9 +117,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
 
     final user = ref.read(authProvider).user;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please log in to add a comment')),
-      );
+      AppToast.info(context, 'Please log in to add a comment');
       return;
     }
 
@@ -105,9 +140,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
       await _fetchComments();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to post comment: $e')),
-        );
+        AppToast.error(context, e, title: 'Comment not posted');
       }
     } finally {
       if (mounted) {
@@ -136,7 +169,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
         ),
         child: Column(
           children: [
-            // Handle bar
+            
             const SizedBox(height: 8),
             Container(
               width: 40,
@@ -147,7 +180,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            // Header
+            
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Row(
@@ -168,7 +201,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
               ),
             ),
             const Divider(height: 1),
-            // Comments List
+            
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
@@ -247,15 +280,28 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
                                           ),
                                         ),
                                         const SizedBox(height: 4),
-                                        Padding(
-                                          padding: const EdgeInsets.only(left: 8),
-                                          child: Text(
-                                            formatRelativeTime(comment.createdAt),
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey[500],
+                                        Row(
+                                          children: [
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.only(left: 8),
+                                              child: Text(
+                                                AppTime.formatRelativeTime(
+                                                    comment.createdAt),
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.grey[500],
+                                                ),
+                                              ),
                                             ),
-                                          ),
+                                            const SizedBox(width: 4),
+                                            CommentVoteBar(
+                                              comment: comment,
+                                              enabled: isAuthenticated,
+                                              onVote: (type) =>
+                                                  _voteComment(index, type),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
@@ -267,7 +313,7 @@ class _CommentsBottomSheetState extends ConsumerState<CommentsBottomSheet> {
                         ),
             ),
             const Divider(height: 1),
-            // Input field
+            
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(12),

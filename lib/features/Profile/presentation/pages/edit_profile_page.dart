@@ -3,11 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/widgets/sub_page_app_bar.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 
-/// Standalone editor reached from Settings › Edit Profile, which previously
-/// went nowhere.
 class EditProfilePage extends ConsumerStatefulWidget {
   const EditProfilePage({super.key});
 
@@ -46,7 +45,11 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
 
     final error = await ref.read(authProvider.notifier).uploadAvatar(picked.path);
     if (!mounted) return;
-    _notify(error ?? 'Profile picture updated');
+    if (error != null) {
+      AppToast.error(context, error, title: 'Upload failed');
+      return;
+    }
+    AppToast.success(context, 'Profile picture updated');
   }
 
   Future<void> _save() async {
@@ -61,15 +64,11 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
 
     if (!mounted) return;
     if (error != null) {
-      _notify(error);
+      AppToast.error(context, error, title: 'Could not save your profile');
       return;
     }
-    _notify('Profile updated');
+    AppToast.success(context, 'Profile updated');
     if (context.canPop()) context.pop();
-  }
-
-  void _notify(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

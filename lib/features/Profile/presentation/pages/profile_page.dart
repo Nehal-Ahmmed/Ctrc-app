@@ -3,12 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:ctrc/core/l10n/app_strings.dart';
+import 'package:ctrc/core/providers/reload_provider.dart';
+import 'package:ctrc/core/widgets/app_toast.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
+import 'package:ctrc/features/Auth/presentation/widgets/sign_out_action.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
 import 'package:ctrc/features/Report/domain/services/vote_toggle.dart';
 import 'package:ctrc/features/Report/presentation/widgets/report_card_widget.dart';
 import 'package:ctrc/features/Report/presentation/widgets/comments_bottom_sheet.dart';
+import 'package:ctrc/features/Report/presentation/widgets/create_report_bottom_sheet.dart';
 
 class ProfilePage extends ConsumerStatefulWidget {
   const ProfilePage({super.key});
@@ -63,11 +67,21 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         setState(() {
           _isLoadingReports = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load your reports: $e')),
-        );
+        AppToast.error(context, e, title: 'Could not load your reports');
       }
     }
+  }
+
+  void _onIdentityChanged() {
+    if (!mounted) return;
+    final user = ref.read(authProvider).user;
+    setState(() {
+      _myReports = [];
+      _isEditing = false;
+      _nameController.text = user?.name ?? '';
+      _addressController.text = user?.address ?? '';
+    });
+    if (user != null) _fetchMyReports();
   }
 
   Future<void> _pickAndUploadImage() async {
@@ -84,21 +98,15 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       final error = await ref.read(authProvider.notifier).uploadAvatar(pickedFile.path);
       if (mounted) {
         if (error != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(error)),
-          );
+          AppToast.error(context, error, title: 'Upload failed');
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Profile picture updated successfully!')),
-          );
+          AppToast.success(context, 'Profile picture updated');
         }
       }
     } catch (e, stack) {
       debugPrint('Exception in _pickAndUploadImage: $e\n$stack');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error picking image: $e')),
-        );
+        AppToast.error(context, e, title: 'Could not pick that image');
       }
     }
   }
@@ -119,13 +127,9 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       setState(() {
         _isEditing = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile updated successfully')),
-      );
+      AppToast.success(context, 'Profile updated');
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error)),
-      );
+      AppToast.error(context, error, title: 'Could not save your profile');
     }
   }
 
@@ -151,9 +155,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         setState(() {
           _myReports[index] = originalReport;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to vote: $e')),
-        );
+        AppToast.error(context, e, title: 'Vote not saved');
       }
     }
   }
@@ -201,8 +203,48 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     );
   }
 
+  Future<void> _handleEditReport(ReportModel report, int index) async {
+    final location = report.location;
+    final result = await showModalBottomSheet<CreateReportResult>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => CreateReportBottomSheet(
+        latitude: location?.latitude ?? 0,
+        longitude: location?.longitude ?? 0,
+        editReport: report,
+        locationLabel: [location?.address, location?.city]
+            .whereType<String>()
+            .where((e) => e.isNotEmpty)
+            .join(', '),
+      ),
+    );
+
+    if (result == CreateReportResult.edited) {
+      _fetchMyReports();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.listen<String?>(
+      authIdentityProvider,
+      (previous, next) {
+        if (previous != next) _onIdentityChanged();
+      },
+    );
+
+    ref.listen<ReloadCommand?>(
+      reloadProvider,
+      (previous, next) {
+        if (next != null && next.index == 2) {
+          _fetchMyReports();
+        }
+      },
+    );
+
     final authState = ref.watch(authProvider);
     final strings = ref.watch(appStringsProvider);
     final user = authState.user;
@@ -251,7 +293,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                   color: Colors.white,
                   child: Column(
                     children: [
-                      // Cover header style
+                      
                       SizedBox(
                         height: 170,
                         child: Stack(
@@ -512,10 +554,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             const SizedBox(height: 16),
             if (!_isEditing)
               ElevatedButton.icon(
-                onPressed: () {
-                  ref.read(authProvider.notifier).signOut();
-                  context.go('/home');
-                },
+                onPressed: () => confirmSignOut(context, ref),
                 icon: const Icon(Icons.logout),
                 label: Text(strings.signOut),
                 style: ElevatedButton.styleFrom(
@@ -595,6 +634,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             onDownvote: () => _handleVote(report, 'down', index),
             onComment: () => _openCommentDialog(report, index),
             onSave: () => _handleSave(report, index),
+            onEdit: () => _handleEditReport(report, index),
           );
         },
       ),

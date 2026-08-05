@@ -1,13 +1,23 @@
 import 'package:fpdart/fpdart.dart';
+import '../../../../core/errors/app_error.dart';
 import '../../../../core/errors/failures.dart';
 import '../../domain/models/user_model.dart';
 import '../../domain/repositories/auth_repository.dart';
+import '../datasources/auth_local_datasource.dart';
 import '../datasources/auth_remote_datasource.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
   final AuthRemoteDataSource remoteDataSource;
 
-  AuthRepositoryImpl({required this.remoteDataSource});
+  final AuthLocalDataSource localDataSource;
+
+  AuthRepositoryImpl({
+    required this.remoteDataSource,
+    AuthLocalDataSource? localDataSource,
+  }) : localDataSource = localDataSource ?? AuthLocalDataSourceImpl();
+
+  @override
+  UserModel? cachedUser() => localDataSource.readSession()?.user;
 
   @override
   Future<Either<Failure, UserModel>> signIn({
@@ -19,9 +29,11 @@ class AuthRepositoryImpl implements AuthRepository {
         email: email,
         password: password,
       );
+      
+      await localDataSource.saveUser(user);
       return Right(user);
     } catch (e) {
-      return Left(AuthFailure('Sign in failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -30,8 +42,8 @@ class AuthRepositoryImpl implements AuthRepository {
     required String email,
     required String password,
     required String name,
-    String? address,   // Optional — null by default
-    String? image_url, // Optional — null by default
+    String? address,   
+    String? image_url, 
   }) async {
     try {
       final user = await remoteDataSource.signUp(
@@ -41,9 +53,10 @@ class AuthRepositoryImpl implements AuthRepository {
         address: address,
         image_url: image_url,
       );
+      await localDataSource.saveUser(user);
       return Right(user);
     } catch (e) {
-      return Left(AuthFailure('Sign up failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -51,19 +64,28 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<Either<Failure, UserModel>> getCurrentUser() async {
     try {
       final user = await remoteDataSource.getCurrentUser();
+      
+      await localDataSource.saveUser(user);
       return Right(user);
+    } on SessionExpiredException catch (e) {
+      
+      await localDataSource.clear();
+      return Left(SessionExpiredFailure(e.message));
     } catch (e) {
-      return Left(AuthFailure('Failed to get current user: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
   @override
   Future<Either<Failure, void>> signOut() async {
+    
+    await localDataSource.clear();
+
     try {
       await remoteDataSource.signOut();
       return const Right(null);
     } catch (e) {
-      return Left(AuthFailure('Sign out failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -73,7 +95,7 @@ class AuthRepositoryImpl implements AuthRepository {
       await remoteDataSource.resetPassword(email);
       return const Right(null);
     } catch (e) {
-      return Left(AuthFailure('Password reset failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -89,9 +111,10 @@ class AuthRepositoryImpl implements AuthRepository {
         address: address,
         image_url: image_url,
       );
+      await localDataSource.saveUser(user);
       return Right(user);
     } catch (e) {
-      return Left(AuthFailure('Profile update failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -99,9 +122,10 @@ class AuthRepositoryImpl implements AuthRepository {
   Future<Either<Failure, UserModel>> uploadAvatar(String filePath) async {
     try {
       final user = await remoteDataSource.uploadAvatar(filePath);
+      await localDataSource.saveUser(user);
       return Right(user);
     } catch (e) {
-      return Left(AuthFailure('Avatar upload failed: ${e.toString()}'));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
   }
 
@@ -119,16 +143,7 @@ class AuthRepositoryImpl implements AuthRepository {
       );
       return const Right(null);
     } catch (e) {
-      return Left(AuthFailure(_readableMessage(e)));
+      return Left(AuthFailure(AppError.messageOf(e)));
     }
-  }
-
-  /// Unwraps `Exception: <message>` so the UI shows the server's wording
-  /// instead of Dart's exception formatting.
-  String _readableMessage(Object error) {
-    final text = error.toString();
-    return text.startsWith('Exception: ')
-        ? text.substring('Exception: '.length)
-        : text;
   }
 }

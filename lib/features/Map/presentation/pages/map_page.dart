@@ -7,7 +7,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/location/last_known_location.dart';
 import '../../../../core/providers/settings_provider.dart';
+import '../../../../core/providers/reload_provider.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 import '../../../Notifications/presentation/providers/notification_provider.dart';
 import '../../../Report/data/datasources/report_remote_datasource.dart';
@@ -30,15 +33,12 @@ import '../widgets/route_planner_sheet.dart';
 import '../widgets/route_summary_card.dart';
 import '../widgets/scope_filter_bar.dart';
 
-/// What the camera is currently glued to.
 enum _CameraMode {
-  /// Following the live GPS pointer (the default).
+  
   followMe,
 
-  /// Locked onto a place picked from the search bar.
   pinnedToPlace,
 
-  /// The user panned away; nothing is auto-centred until they hit recenter.
   free,
 }
 
@@ -55,8 +55,6 @@ class _MapPageState extends ConsumerState<MapPage> {
   final GeocodingDataSource _geocoder = GeocodingDataSource();
   final RoutingDataSource _router = RoutingDataSource();
 
-  /// Id of the signed-in user, so the backend can return saved / vote state
-  /// alongside each report. Null while browsing anonymously.
   int? get _viewerUserId {
     final user = ref.read(authProvider).user;
     if (user == null) return null;
@@ -66,40 +64,35 @@ class _MapPageState extends ConsumerState<MapPage> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
 
-  // ---- live location -------------------------------------------------------
   StreamSubscription<Position>? _positionSub;
   LatLng? _currentLocation;
   double? _accuracyMeters;
 
-  /// Unwrapped heading so the pointer animates the short way round 0°/360°.
   double? _smoothHeading;
   double _lastRawHeading = 0;
   bool _locationDenied = false;
 
-  // ---- camera / anchor -----------------------------------------------------
   _CameraMode _cameraMode = _CameraMode.followMe;
   PlaceSuggestion? _pinnedPlace;
   bool _mapReady = false;
 
-  // ---- area scope ----------------------------------------------------------
   ResolvedArea? _area;
   bool _isResolvingArea = false;
   bool _isLoadingAlerts = false;
   List<ReportModel> _areaReports = const [];
   int _areaRequestId = 0;
 
-  // ---- routing -------------------------------------------------------------
   RouteAnalysis? _routeAnalysis;
   RouteRequest? _lastRouteRequest;
   bool _isRouting = false;
+
+  final LatLng? _restoredCenter = LastKnownLocation.read();
 
   @override
   void initState() {
     super.initState();
     _startLocationTracking();
 
-    // The drawer may have dispatched a command before this branch was first
-    // built, in which case ref.listen would never see the transition.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final pending = ref.read(mapCommandProvider);
@@ -114,10 +107,6 @@ class _MapPageState extends ConsumerState<MapPage> {
     _searchFocus.dispose();
     super.dispose();
   }
-
-  // ===========================================================================
-  // Location
-  // ===========================================================================
 
   Future<void> _startLocationTracking() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -142,7 +131,7 @@ class _MapPageState extends ConsumerState<MapPage> {
       final initial = await Geolocator.getCurrentPosition();
       _onPosition(initial, recenter: true);
     } catch (_) {
-      // No fix yet; the stream below will deliver one when it arrives.
+      
     }
 
     _positionSub?.cancel();
@@ -169,6 +158,8 @@ class _MapPageState extends ConsumerState<MapPage> {
       _updateHeading(position.heading);
     });
 
+    unawaited(LastKnownLocation.save(point));
+
     if (recenter || isFirstFix) {
       _cameraMode = _CameraMode.followMe;
       _moveCamera(point, zoom: 15.5);
@@ -178,8 +169,7 @@ class _MapPageState extends ConsumerState<MapPage> {
 
     if (_cameraMode == _CameraMode.followMe) {
       _moveCamera(point);
-      // Re-query only once the pointer has drifted meaningfully inside the
-      // current scope, so a slow walk does not hammer the backend.
+      
       final area = _area;
       if (area == null ||
           GeoUtils.metersBetween(area.center, point) >
@@ -189,8 +179,6 @@ class _MapPageState extends ConsumerState<MapPage> {
     }
   }
 
-  /// Keeps [_smoothHeading] continuous across the 359° → 1° wrap so the cone
-  /// rotates the short way instead of spinning all the way round.
   void _updateHeading(double rawHeading) {
     if (rawHeading.isNaN || rawHeading < 0) return;
 
@@ -209,28 +197,21 @@ class _MapPageState extends ConsumerState<MapPage> {
     _lastRawHeading = rawHeading;
   }
 
-  // ===========================================================================
-  // Camera
-  // ===========================================================================
-
   void _moveCamera(LatLng target, {double? zoom}) {
     if (!_mapReady) return;
     _mapController.move(target, zoom ?? _mapController.camera.zoom);
   }
 
-  /// Where alerts and the blue circle are anchored: the pinned place if there
-  /// is one, otherwise the live pointer.
   LatLng? get _anchor => _pinnedPlace?.point ?? _currentLocation;
 
   void _recenterOnMe() {
     final here = _currentLocation;
     if (here == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_locationDenied
-              ? 'Location permission is off — enable it in settings'
-              : 'Still waiting for a GPS fix...'),
-        ),
+      AppToast.warning(
+        context,
+        _locationDenied
+            ? 'Location permission is off — enable it in settings'
+            : 'Still waiting for a GPS fix…',
       );
       _startLocationTracking();
       return;
@@ -270,19 +251,25 @@ class _MapPageState extends ConsumerState<MapPage> {
     final anchor = _anchor;
     if (anchor == null) return;
 
-    // Pinching to zoom keeps the anchor centred, so only a real pan unlocks.
     if (GeoUtils.metersBetween(camera.center, anchor) > 60) {
       setState(() => _cameraMode = _CameraMode.free);
     }
   }
 
-  // ===========================================================================
-  // Area scope + alerts
-  // ===========================================================================
-
   Future<void> _onScopeSelected(MapScope scope) async {
     ref.read(mapScopeProvider.notifier).state = scope;
     await _refreshArea(force: true, frameCamera: true);
+  }
+
+  void _onIdentityChanged() {
+    if (!mounted) return;
+    setState(() {
+      _areaReports =
+          _areaReports.map((report) => report.withoutViewerState()).toList();
+    });
+    _refreshArea(force: true);
+    final request = _lastRouteRequest;
+    if (request != null && _routeAnalysis != null) _buildRoute(request);
   }
 
   Future<void> _refreshArea({
@@ -358,7 +345,6 @@ class _MapPageState extends ConsumerState<MapPage> {
       });
       ref.read(mapAreaAlertCountProvider.notifier).state = visible.length;
 
-      // Feed the alert inbox from the same data the map just drew.
       ref.read(notificationsProvider.notifier).ingest(
             visible,
             viewerLocation: _currentLocation,
@@ -369,16 +355,18 @@ class _MapPageState extends ConsumerState<MapPage> {
       if (!mounted || requestId != _areaRequestId) return;
       setState(() => _isLoadingAlerts = false);
       if (force) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not load alerts: $e')),
+        AppToast.error(
+          context,
+          e,
+          title: 'Could not load alerts',
+          action: ToastAction(
+            label: 'Retry',
+            onPressed: () => _refreshArea(force: true),
+          ),
         );
       }
     }
   }
-
-  // ===========================================================================
-  // Routing
-  // ===========================================================================
 
   Future<void> _openRoutePlanner() async {
     final request = await RoutePlannerSheet.show(
@@ -401,7 +389,6 @@ class _MapPageState extends ConsumerState<MapPage> {
       final plans = await _router.route(from: request.from, to: request.to);
       if (!mounted) return;
 
-      // Built per request so it always carries the current signed-in user.
       final analyzer = RouteHazardAnalyzer(
         reports: _reports,
         viewerUserId: _viewerUserId,
@@ -442,54 +429,38 @@ class _MapPageState extends ConsumerState<MapPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isRouting = false);
-      _showNotice('Could not build the route: $e');
+      AppToast.error(
+        context,
+        e,
+        title: 'Could not build the route',
+        action: ToastAction(
+          label: 'Retry',
+          onPressed: () => _buildRoute(request),
+        ),
+      );
     }
   }
 
-  /// One place for user-facing map notices, so a temporary rate limit reads as
-  /// "try again in a moment" instead of looking like a failure.
   void _showNotice(
     String message, {
     bool isTransient = false,
     VoidCallback? onRetry,
   }) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              Icon(
-                isTransient ? Icons.hourglass_bottom : Icons.error_outline,
-                color: Colors.white,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Expanded(child: Text(message)),
-            ],
-          ),
-          backgroundColor:
-              isTransient ? const Color(0xFFB26A00) : const Color(0xFF323232),
-          duration: Duration(seconds: isTransient ? 6 : 4),
-          action: onRetry == null
-              ? null
-              : SnackBarAction(
-                  label: 'Retry',
-                  textColor: Colors.white,
-                  onPressed: onRetry,
-                ),
-        ),
-      );
+    AppToast.show(
+      context,
+      message,
+      variant: isTransient ? ToastVariant.warning : ToastVariant.info,
+      duration: Duration(seconds: isTransient ? 6 : 4),
+      action: onRetry == null
+          ? null
+          : ToastAction(label: 'Retry', onPressed: onRetry),
+    );
   }
 
   void _clearRoute() {
     setState(() => _routeAnalysis = null);
     ref.read(mapRouteAlertCountProvider.notifier).state = null;
   }
-
-  // ===========================================================================
-  // Alert sheets
-  // ===========================================================================
 
   void _showAreaAlerts() {
     final area = _area;
@@ -548,20 +519,13 @@ class _MapPageState extends ConsumerState<MapPage> {
   }
 
   void _openReport(ReportModel report) {
-    Navigator.of(context).pop(); // close the alert sheet first
+    Navigator.of(context).pop(); 
     context.push('/report/${report.reportId}', extra: {
       'report': report,
       'viewerLocation': _currentLocation,
     });
   }
 
-  // ===========================================================================
-  // Reporting
-  // ===========================================================================
-
-  /// Where a long-press dropped a pin, so an incident can be filed somewhere
-  /// other than the reporter's own GPS position (the roadmap's "drop a pin to
-  /// select a location").
   LatLng? _reportPin;
 
   void _onMapLongPress(TapPosition tapPosition, LatLng point) {
@@ -600,14 +564,9 @@ class _MapPageState extends ConsumerState<MapPage> {
     setState(() => _reportPin = null);
     if (result == null) return;
 
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(result.message)));
+    AppToast.success(context, result.message);
     await _refreshArea(force: true);
   }
-
-  // ===========================================================================
-  // Drawer commands
-  // ===========================================================================
 
   int _lastHandledSeq = 0;
 
@@ -638,10 +597,6 @@ class _MapPageState extends ConsumerState<MapPage> {
     ref.read(mapCommandProvider.notifier).consume();
   }
 
-  // ===========================================================================
-  // Build
-  // ===========================================================================
-
   @override
   Widget build(BuildContext context) {
     ref.listen<MapCommand?>(mapCommandProvider, (previous, next) {
@@ -649,6 +604,16 @@ class _MapPageState extends ConsumerState<MapPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _handleCommand(next);
       });
+    });
+
+    ref.listen<String?>(authIdentityProvider, (previous, next) {
+      if (previous != next) _onIdentityChanged();
+    });
+
+    ref.listen<ReloadCommand?>(reloadProvider, (previous, next) {
+      if (next != null && next.index == 1) {
+        _refreshArea(force: true);
+      }
     });
 
     final scope = ref.watch(mapScopeProvider);
@@ -667,14 +632,16 @@ class _MapPageState extends ConsumerState<MapPage> {
           ),
           if (analysis == null)
             Positioned(left: 12, bottom: 16, child: _buildAreaAlertPill()),
-        ],
-      ),
-      // Handing the route card to `bottomSheet` lets Scaffold lift the FABs
-      // above it automatically.
-      bottomSheet: analysis == null
-          ? null
-          : Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          Positioned(
+            right: 16,
+            bottom: analysis == null ? 16 : 210,
+            child: _buildFabColumn(),
+          ),
+          if (analysis != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: 12,
               child: RouteSummaryCard(
                 analysis: analysis,
                 onShowAlerts: _showRouteAlerts,
@@ -682,7 +649,8 @@ class _MapPageState extends ConsumerState<MapPage> {
                 onEdit: _openRoutePlanner,
               ),
             ),
-      floatingActionButton: _buildFabColumn(),
+        ],
+      ),
     );
   }
 
@@ -694,7 +662,9 @@ class _MapPageState extends ConsumerState<MapPage> {
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
-        initialCenter: here ?? const LatLng(23.8103, 90.4125),
+        
+        initialCenter:
+            here ?? _restoredCenter ?? const LatLng(23.8103, 90.4125),
         initialZoom: 13,
         maxZoom: 18,
         minZoom: 3,
@@ -713,7 +683,6 @@ class _MapPageState extends ConsumerState<MapPage> {
           userAgentPackageName: 'com.ctrc.app',
         ),
 
-        // The scope circle: this is the area alerts are pulled from.
         if (area != null && analysis == null)
           CircleLayer(
             circles: [
@@ -728,7 +697,6 @@ class _MapPageState extends ConsumerState<MapPage> {
             ],
           ),
 
-        // GPS accuracy halo.
         if (here != null && _accuracyMeters != null && _accuracyMeters! > 0)
           CircleLayer(
             circles: [
@@ -786,7 +754,7 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   List<Widget> _buildRouteLayers(RouteAnalysis analysis) {
     return [
-      // Discarded alternatives, drawn faintly underneath.
+      
       if (analysis.alternatives.isNotEmpty)
         PolylineLayer(
           polylines: analysis.alternatives
@@ -799,7 +767,7 @@ class _MapPageState extends ConsumerState<MapPage> {
                   ))
               .toList(),
         ),
-      // The chosen route, one polyline per congestion-coloured chunk.
+      
       PolylineLayer(
         polylines: analysis.segments
             .map((segment) => Polyline(
@@ -815,8 +783,7 @@ class _MapPageState extends ConsumerState<MapPage> {
   }
 
   List<Marker> _buildIncidentMarkers(RouteAnalysis? analysis) {
-    // While routing, the corridor hazards replace the radius alerts so the
-    // map does not show two competing incident sets.
+    
     final entries = analysis != null
         ? analysis.hazards
             .map((h) => (report: h.report, level: h.level))
@@ -865,7 +832,7 @@ class _MapPageState extends ConsumerState<MapPage> {
     return SafeArea(
       bottom: false,
       child: Column(
-        // Keep the column tight so the rest of the map stays touchable.
+        
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

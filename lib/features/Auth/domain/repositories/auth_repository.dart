@@ -3,6 +3,9 @@ import '../../../../core/errors/failures.dart';
 import '../models/user_model.dart';
 
 abstract class AuthRepository {
+  
+  UserModel? cachedUser();
+
   Future<Either<Failure, UserModel>> signIn({
     required String email,
     required String password,
@@ -12,8 +15,8 @@ abstract class AuthRepository {
     required String email,
     required String password,
     required String name,
-    String? address,    // Optional — null by default
-    String? image_url,  // Optional — null by default
+    String? address,    
+    String? image_url,  
   });
 
   Future<Either<Failure, UserModel>> getCurrentUser();

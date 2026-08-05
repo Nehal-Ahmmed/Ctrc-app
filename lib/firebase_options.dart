@@ -1,0 +1,63 @@
+import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+
+class DefaultFirebaseOptions {
+  static FirebaseOptions get currentPlatform {
+    if (kIsWeb) {
+      return web;
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return android;
+      case TargetPlatform.iOS:
+        return ios;
+      case TargetPlatform.macOS:
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for macos - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
+      case TargetPlatform.windows:
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for windows - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
+      case TargetPlatform.linux:
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for linux - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
+      default:
+        throw UnsupportedError(
+          'DefaultFirebaseOptions are not supported for this platform.',
+        );
+    }
+  }
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyBS5apcM5qoUzPh2rXyCtaZ3pA_ucxPz5E',
+    appId: '1:1079869769245:web:5aee91dc25080f80e7e8f4',
+    messagingSenderId: '1079869769245',
+    projectId: 'push-notification-b3312',
+    authDomain: 'push-notification-b3312.firebaseapp.com',
+    storageBucket: 'push-notification-b3312.firebasestorage.app',
+    measurementId: 'G-V47CMVSXYT',
+  );
+
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'AIzaSyDaADhS8DDlXSFgkJAK7xeU8cod83n9Tdk',
+    appId: '1:1079869769245:android:ae044603ab77013ae7e8f4',
+    messagingSenderId: '1079869769245',
+    projectId: 'push-notification-b3312',
+    storageBucket: 'push-notification-b3312.firebasestorage.app',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyBfVGknbkC2y0a0aW3lic1fGKp4dF6rReU',
+    appId: '1:1079869769245:ios:67d848f0e5c767b3e7e8f4',
+    messagingSenderId: '1079869769245',
+    projectId: 'push-notification-b3312',
+    storageBucket: 'push-notification-b3312.firebasestorage.app',
+    iosBundleId: 'com.cuetproject.ctrc',
+  );
+}

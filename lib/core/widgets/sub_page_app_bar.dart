@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-/// One entry in a [SubPageAppBar] overflow menu.
 class SubPageMenuItem {
   final String label;
   final IconData icon;
@@ -16,20 +15,13 @@ class SubPageMenuItem {
   });
 }
 
-/// App bar for pages pushed on top of the shell.
-///
-/// The three-dot button used to be an empty callback. It now shows a real menu:
-/// whatever the page passes in, followed by the entries every sub-page shares.
 class SubPageAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
 
-  /// Page-specific entries, listed above the shared ones.
   final List<SubPageMenuItem> menuItems;
 
-  /// Extra actions placed to the left of the overflow button.
   final List<Widget> actions;
 
-  /// Hides the overflow button entirely for pages that have nothing to offer.
   final bool showOverflowMenu;
 
   const SubPageAppBar({

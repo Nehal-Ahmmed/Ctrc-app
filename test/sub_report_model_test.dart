@@ -82,7 +82,7 @@ void main() {
     });
 
     test('falls back to the count when only the badge was returned', () {
-      // List endpoints send the tally without the thread.
+      
       final report = parse({'subReportCount': 4});
 
       expect(report.subReports, isEmpty);

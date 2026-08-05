@@ -3,17 +3,14 @@ import 'package:latlong2/latlong.dart';
 
 import 'geo_bounds.dart';
 
-/// A place returned by the geocoder (or typed in as raw coordinates).
 class PlaceSuggestion {
-  /// Short headline, e.g. "Chittagong University of Engineering & Technology".
+  
   final String title;
 
-  /// Full address line shown underneath the title.
   final String subtitle;
   final LatLng point;
   final GeoBounds? bounds;
 
-  /// Nominatim `class`/`type`, used only to pick a sensible icon.
   final String? category;
   final String? kind;
 
@@ -48,7 +45,6 @@ class PlaceSuggestion {
     );
   }
 
-  /// Builds a suggestion straight from typed coordinates ("22.46, 91.97").
   static PlaceSuggestion? tryParseCoordinates(String input) {
     final match = RegExp(r'^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$')
         .firstMatch(input);

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 import '../../features/Auth/presentation/pages/forgot_password_page.dart';
@@ -17,17 +18,63 @@ import '../../features/Report/domain/models/report_model.dart';
 import '../../features/Report/presentation/pages/my_reports_page.dart';
 import '../../features/Report/presentation/pages/report_details_page.dart';
 import '../../features/Report/presentation/pages/saved_posts_page.dart';
+import '../../features/Report/presentation/pages/sub_report_details_page.dart';
 import '../../features/Splash/presentation/pages/splash_page.dart';
+import '../../features/Auth/presentation/providers/auth_provider.dart';
 import '../widgets/main_scaffold.dart';
+import 'root_navigator_key.dart';
 
-class AppRouter {
-  AppRouter._();
+const _authOnlyRoutes = {
+  '/my-reports',
+  '/saved-posts',
+  '/edit-profile',
+  '/change-password',
+};
 
-  static final _rootNavigatorKey = GlobalKey<NavigatorState>();
+const _guestOnlyRoutes = {'/sign-in', '/sign-up', '/forgot-password'};
 
-  static final GoRouter router = GoRouter(
-    navigatorKey: _rootNavigatorKey,
+class _AuthRefreshListenable extends ChangeNotifier {
+  _AuthRefreshListenable(Ref ref) {
+    _subscription = ref.listen<bool>(
+      isAuthenticatedProvider,
+      (_, _) => notifyListeners(),
+    );
+  }
+
+  late final ProviderSubscription<bool> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.close();
+    super.dispose();
+  }
+}
+
+final routerProvider = Provider<GoRouter>((ref) {
+  final refresh = _AuthRefreshListenable(ref);
+
+  final router = GoRouter(
+    navigatorKey: rootNavigatorKey,
     initialLocation: '/splash',
+    refreshListenable: refresh,
+    redirect: (context, state) {
+      final status = ref.read(authProvider).status;
+
+      if (status == AuthStatus.uninitialized || status == AuthStatus.loading) {
+        return null;
+      }
+
+      final isAuthenticated = ref.read(isAuthenticatedProvider);
+      final location = state.matchedLocation;
+
+      if (!isAuthenticated && _authOnlyRoutes.contains(location)) {
+        return '/home';
+      }
+      if (isAuthenticated && _guestOnlyRoutes.contains(location)) {
+        return '/home';
+      }
+      return null;
+    },
     routes: [
       GoRoute(
         path: '/splash',
@@ -81,53 +128,51 @@ class AppRouter {
       ),
       GoRoute(
         path: '/settings',
-        parentNavigatorKey: _rootNavigatorKey, // Covers bottom nav
+        parentNavigatorKey: rootNavigatorKey, 
         builder: (context, state) => const SettingsPage(),
       ),
       GoRoute(
         path: '/edit-profile',
-        parentNavigatorKey: _rootNavigatorKey,
+        parentNavigatorKey: rootNavigatorKey,
         builder: (context, state) => const EditProfilePage(),
       ),
       GoRoute(
         path: '/change-password',
-        parentNavigatorKey: _rootNavigatorKey,
+        parentNavigatorKey: rootNavigatorKey,
         builder: (context, state) => const ChangePasswordPage(),
       ),
       GoRoute(
         path: '/help',
-        parentNavigatorKey: _rootNavigatorKey,
+        parentNavigatorKey: rootNavigatorKey,
         builder: (context, state) => const HelpCenterPage(),
       ),
       GoRoute(
         path: '/privacy',
-        parentNavigatorKey: _rootNavigatorKey,
+        parentNavigatorKey: rootNavigatorKey,
         builder: (context, state) => const PrivacyPolicyPage(),
       ),
       GoRoute(
         path: '/notifications',
-        parentNavigatorKey: _rootNavigatorKey,
+        parentNavigatorKey: rootNavigatorKey,
         builder: (context, state) => const NotificationsPage(),
       ),
       GoRoute(
         path: '/my-reports',
-        parentNavigatorKey: _rootNavigatorKey, 
+        parentNavigatorKey: rootNavigatorKey, 
         builder: (context, state) => const MyReportsPage(),
       ),
       GoRoute(
         path: '/saved-posts',
-        parentNavigatorKey: _rootNavigatorKey,
+        parentNavigatorKey: rootNavigatorKey,
         builder: (context, state) => const SavedPostsPage(),
       ),
       GoRoute(
         path: '/report/:id',
         name: 'reportDetails',
-        parentNavigatorKey: _rootNavigatorKey,
+        parentNavigatorKey: rootNavigatorKey,
         builder: (context, state) {
           final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
 
-          // Callers may pass the already-loaded report (and the viewer's
-          // position) so the page can paint before the network call returns.
           final extra = state.extra;
           ReportModel? report;
           LatLng? viewerLocation;
@@ -145,6 +190,20 @@ class AppRouter {
           );
         },
       ),
+      GoRoute(
+        path: '/sub-report/:id',
+        name: 'subReportDetails',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+          return SubReportDetailsPage(subReportId: id);
+        },
+      ),
     ],
   );
-}
+
+  ref.onDispose(router.dispose);
+  ref.onDispose(refresh.dispose);
+
+  return router;
+});

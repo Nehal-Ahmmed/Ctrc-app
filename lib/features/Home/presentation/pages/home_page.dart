@@ -3,9 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:ctrc/core/l10n/app_strings.dart';
+import 'package:ctrc/core/location/last_known_location.dart';
 import 'package:ctrc/core/providers/settings_provider.dart';
+import 'package:ctrc/core/storage/local_store.dart';
+import 'package:ctrc/core/widgets/app_toast.dart';
+import 'package:ctrc/features/Notifications/data/datasources/fcm_service.dart';
 import 'package:ctrc/features/Notifications/presentation/providers/notification_provider.dart';
+import 'package:ctrc/features/Home/presentation/widgets/feed_filter_sheet.dart';
+import 'package:ctrc/features/Report/data/datasources/report_local_cache.dart';
 import 'package:ctrc/features/Report/data/datasources/report_remote_datasource.dart';
+import 'package:ctrc/features/Report/domain/models/feed_filter.dart';
 import 'package:ctrc/features/Report/domain/models/report_category.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
 import 'package:ctrc/features/Report/domain/services/vote_toggle.dart';
@@ -15,6 +22,7 @@ import 'package:ctrc/features/Report/presentation/widgets/comments_bottom_sheet.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ctrc/features/Auth/presentation/providers/auth_provider.dart';
+import 'package:ctrc/core/providers/reload_provider.dart';
 
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
@@ -28,17 +36,47 @@ class _HomePageState extends ConsumerState<HomePage> {
   List<ReportModel> _feedReports = [];
   bool _isLoading = false;
   String _selectedCategory = 'All';
+  FeedFilter _filter = FeedFilter.initial;
   final ReportRemoteDataSource _remoteDataSource = ReportRemoteDataSourceImpl();
+  final ReportLocalCache _cache = ReportLocalCache();
   StreamSubscription<Position>? _positionStreamSub;
 
-  /// Same list the create sheet offers, so a filter chip always matches what
-  /// was actually filed.
+  bool _isShowingCache = false;
+
   final List<String> _categories = ReportCategory.filterLabels;
 
   @override
   void initState() {
     super.initState();
+    _restoreFromDevice();
     _initLocationTracking();
+  }
+
+  void _restoreFromDevice() {
+    final storedCategory = LocalStore.instance.getString(StorageKeys.feedCategory);
+    if (storedCategory != null && _categories.contains(storedCategory)) {
+      _selectedCategory = storedCategory;
+    }
+
+    final storedFilter = LocalStore.instance.getJson(StorageKeys.feedFilter);
+    if (storedFilter is Map) {
+      _filter = FeedFilter.fromJson(Map<String, dynamic>.from(storedFilter));
+    }
+
+    _currentLocation = LastKnownLocation.read();
+
+    final cached = _cache.read(
+      ReportLocalCache.feedBucket,
+      userId: ref.read(authIdentityProvider),
+    );
+    if (cached == null) return;
+
+    _currentLocation ??= cached.origin;
+
+    if (cached.isOlderThan(ReportLocalCache.staleAfter)) return;
+
+    _feedReports = cached.reports;
+    _isShowingCache = true;
   }
 
   @override
@@ -48,6 +86,9 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Future<void> _initLocationTracking() async {
+    
+    if (_currentLocation != null) _fetchFeedData();
+
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
 
@@ -58,12 +99,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     }
     if (permission == LocationPermission.deniedForever) return;
 
-    // Fetch initial position immediately
     Position initialPosition = await Geolocator.getCurrentPosition();
     _updateLocationAndFetch(initialPosition);
 
-    // Listen to changes (e.g. moving in a car). 
-    // distanceFilter: 50 means we only get an update if the user moves > 50 meters
     _positionStreamSub = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
@@ -76,15 +114,26 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   void _updateLocationAndFetch(Position position) {
     if (!mounted) return;
+    final point = LatLng(position.latitude, position.longitude);
     setState(() {
-      _currentLocation = LatLng(position.latitude, position.longitude);
+      _currentLocation = point;
     });
+    
+    unawaited(LastKnownLocation.save(point));
     _fetchFeedData();
   }
 
   Future<void> _fetchFeedData() async {
     if (_currentLocation == null) return;
-    
+
+    final settings = ref.read(settingsProvider);
+    unawaited(ref.read(fcmServiceProvider).syncTopics(
+          latitude: _currentLocation!.latitude,
+          longitude: _currentLocation!.longitude,
+          radiusKm: settings.reportRadius,
+          enabled: settings.nearbyAlertsEnabled,
+        ));
+
     setState(() {
       _isLoading = true;
     });
@@ -96,18 +145,26 @@ class _HomePageState extends ConsumerState<HomePage> {
       final reports = await _remoteDataSource.getNearbyReports(
         lat: _currentLocation!.latitude,
         lng: _currentLocation!.longitude,
-        // Honours the "Report Radius" preference in Settings.
+        
         radius: ref.read(settingsProvider).reportRadius,
         category: _selectedCategory,
         userId: userId,
+        filter: _filter,
       );
 
       if (mounted) {
         setState(() {
           _feedReports = reports;
+          _isShowingCache = false;
         });
 
-        // Anything new near the user becomes an entry in the alert inbox.
+        unawaited(_cache.write(
+          ReportLocalCache.feedBucket,
+          reports,
+          userId: user?.user_id,
+          origin: _currentLocation,
+        ));
+
         ref.read(notificationsProvider.notifier).ingest(
               reports,
               viewerLocation: _currentLocation,
@@ -118,8 +175,11 @@ class _HomePageState extends ConsumerState<HomePage> {
     } catch (e, stack) {
       debugPrint('Error fetching feed: $e\n$stack');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error fetching feed: $e')),
+        AppToast.error(
+          context,
+          e,
+          title: 'Could not load the feed',
+          action: ToastAction(label: 'Retry', onPressed: _fetchFeedData),
         );
       }
     } finally {
@@ -133,16 +193,12 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   void _openCreateReportSheet() async {
     if (_currentLocation == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ref.read(appStringsProvider).waitingForGps)),
-      );
+      AppToast.warning(context, ref.read(appStringsProvider).waitingForGps);
       return;
     }
 
     if (ref.read(authProvider).user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ref.read(appStringsProvider).logInToReport)),
-      );
+      AppToast.info(context, ref.read(appStringsProvider).logInToReport);
       return;
     }
 
@@ -159,9 +215,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
 
     if (result != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message)),
-      );
+      AppToast.success(context, result.message);
       _fetchFeedData();
     }
   }
@@ -169,13 +223,10 @@ class _HomePageState extends ConsumerState<HomePage> {
   Future<void> _handleVote(ReportModel report, String type, int index) async {
     final user = ref.read(authProvider).user;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ref.read(appStringsProvider).logInToVote)),
-      );
+      AppToast.info(context, ref.read(appStringsProvider).logInToVote);
       return;
     }
 
-    // Save original state
     final originalReport = _feedReports[index];
 
     setState(() {
@@ -190,14 +241,12 @@ class _HomePageState extends ConsumerState<HomePage> {
       );
     } catch (e, stack) {
       debugPrint('Error voting: $e\n$stack');
-      // Revert optimistic update on error
+      
       if (mounted) {
         setState(() {
            _feedReports[index] = originalReport;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to vote: $e')),
-        );
+        AppToast.error(context, e, title: 'Vote not saved');
       }
     }
   }
@@ -220,9 +269,25 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  void _onIdentityChanged() {
+    if (!mounted) return;
+
+    final cached = _cache.read(
+      ReportLocalCache.feedBucket,
+      userId: ref.read(authIdentityProvider),
+    );
+
+    setState(() {
+      _feedReports = cached?.reports ??
+          _feedReports.map((report) => report.withoutViewerState()).toList();
+      _isShowingCache = cached != null;
+    });
+    _fetchFeedData();
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Changing the radius in Settings should reshape the feed straight away.
+    
     ref.listen<double>(
       settingsProvider.select((s) => s.reportRadius),
       (previous, next) {
@@ -230,14 +295,33 @@ class _HomePageState extends ConsumerState<HomePage> {
       },
     );
 
+    ref.listen<bool>(
+      settingsProvider.select((s) => s.nearbyAlertsEnabled),
+      (previous, next) {
+        if (previous != null && previous != next) _fetchFeedData();
+      },
+    );
+
+    ref.listen<String?>(
+      authIdentityProvider,
+      (previous, next) {
+        if (previous != next) _onIdentityChanged();
+      },
+    );
+
+    ref.listen<ReloadCommand?>(
+      reloadProvider,
+      (previous, next) {
+        if (next != null && next.index == 0) {
+          _fetchFeedData();
+        }
+      },
+    );
+
     final strings = ref.watch(appStringsProvider);
 
     return Scaffold(
       backgroundColor: Colors.grey[200],
-      appBar: AppBar(
-        title: Text(strings.localFeed),
-        elevation: 1,
-      ),
       body: RefreshIndicator(
         onRefresh: _fetchFeedData,
         child: CustomScrollView(
@@ -248,6 +332,8 @@ class _HomePageState extends ConsumerState<HomePage> {
             SliverToBoxAdapter(
               child: _buildCategoryFilter(),
             ),
+            if (_isShowingCache && _feedReports.isNotEmpty)
+              SliverToBoxAdapter(child: _buildCachedNotice(strings)),
             if (_isLoading && _feedReports.isEmpty)
               const SliverFillRemaining(
                 child: Center(child: CircularProgressIndicator()),
@@ -265,18 +351,21 @@ class _HomePageState extends ConsumerState<HomePage> {
                             size: 48, color: Colors.grey[400]),
                         const SizedBox(height: 12),
                         Text(
-                          _selectedCategory == ReportCategory.allLabel
-                              ? strings.noIncidentsWithin(
-                                  ref.watch(settingsProvider)
-                                      .reportRadius
-                                      .toInt(),
-                                )
-                              : strings.noCategoryIncidentsWithin(
-                                  _selectedCategory,
-                                  ref.watch(settingsProvider)
-                                      .reportRadius
-                                      .toInt(),
-                                ),
+                          
+                          _filter.activeFilterCount > 0
+                              ? strings.noMatchingReports
+                              : _selectedCategory == ReportCategory.allLabel
+                                  ? strings.noIncidentsWithin(
+                                      ref.watch(settingsProvider)
+                                          .reportRadius
+                                          .toInt(),
+                                    )
+                                  : strings.noCategoryIncidentsWithin(
+                                      _selectedCategory,
+                                      ref.watch(settingsProvider)
+                                          .reportRadius
+                                          .toInt(),
+                                    ),
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey[600]),
                         ),
@@ -297,6 +386,27 @@ class _HomePageState extends ConsumerState<HomePage> {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildCachedNotice(AppStrings strings) {
+    return Container(
+      width: double.infinity,
+      color: Colors.amber[50],
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Icon(Icons.history, size: 16, color: Colors.amber[800]),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              strings.showingSavedReports,
+              style: TextStyle(fontSize: 12, color: Colors.amber[900]),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -325,6 +435,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                   setState(() {
                     _selectedCategory = category;
                   });
+                  
+                  unawaited(LocalStore.instance
+                      .setString(StorageKeys.feedCategory, category));
                   _fetchFeedData();
                 }
               },
@@ -379,23 +492,94 @@ class _HomePageState extends ConsumerState<HomePage> {
               ),
             ),
           ),
+          const SizedBox(width: 8),
+          _buildFilterButton(),
         ],
       ),
     );
   }
 
+  Widget _buildFilterButton() {
+    final strings = ref.watch(appStringsProvider);
+    final isActive = !_filter.isDefault;
+    final hidden = _filter.activeFilterCount;
+
+    return Tooltip(
+      message: strings.filterAndSort,
+      child: InkWell(
+        onTap: _openFilterSheet,
+        borderRadius: BorderRadius.circular(24),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: isActive ? Colors.blue[50] : Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isActive ? Colors.blue : Colors.grey[300]!,
+            ),
+          ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(
+                Icons.tune,
+                size: 22,
+                color: isActive ? Colors.blue : Colors.grey[700],
+              ),
+              
+              if (hidden > 0)
+                Positioned(
+                  top: -6,
+                  right: -6,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    constraints: const BoxConstraints(minWidth: 16),
+                    decoration: const BoxDecoration(
+                      color: Colors.blue,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      '$hidden',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openFilterSheet() async {
+    final chosen = await FeedFilterSheet.show(context, _filter);
+    if (chosen == null || chosen == _filter || !mounted) return;
+
+    setState(() {
+      _filter = chosen;
+    });
+    unawaited(
+      LocalStore.instance.setJson(StorageKeys.feedFilter, chosen.toJson()),
+    );
+    
+    _fetchFeedData();
+  }
+
   Future<void> _handleSave(ReportModel report, int index) async {
     final user = ref.read(authProvider).user;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ref.read(appStringsProvider).logInToSave)),
-      );
+      AppToast.info(context, ref.read(appStringsProvider).logInToSave);
       return;
     }
 
     final isCurrentlySaved = report.isSaved;
     
-    // Optimistic update
     setState(() {
       _feedReports[index] = report.copyWith(isSaved: !isCurrentlySaved);
     });
@@ -407,19 +591,45 @@ class _HomePageState extends ConsumerState<HomePage> {
         await _remoteDataSource.saveReport(report.reportId, int.parse(user.user_id));
       }
     } catch (e) {
-      // Revert optimistic update on error
+      
       if (mounted) {
         setState(() {
           _feedReports[index] = report;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update save status: $e')),
-        );
+        AppToast.error(context, e, title: 'Could not update saved posts');
       }
     }
   }
 
+  Future<void> _handleEditReport(ReportModel report, int index) async {
+    final location = report.location;
+    final result = await showModalBottomSheet<CreateReportResult>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => CreateReportBottomSheet(
+        latitude: location?.latitude ?? 0,
+        longitude: location?.longitude ?? 0,
+        editReport: report,
+        locationLabel: [location?.address, location?.city]
+            .whereType<String>()
+            .where((e) => e.isNotEmpty)
+            .join(', '),
+      ),
+    );
+
+    if (result == CreateReportResult.edited) {
+      _fetchFeedData();
+    }
+  }
+
   Widget _buildReportCard(ReportModel report, int index) {
+    final user = ref.read(authProvider).user;
+    final currentUserId = user != null ? int.tryParse(user.user_id) : null;
+    final isOwner = currentUserId != null && report.userId == currentUserId;
+
     return ReportCardWidget(
       report: report,
       currentLocation: _currentLocation,
@@ -427,6 +637,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       onDownvote: () => _handleVote(report, 'down', index),
       onComment: () => _openCommentDialog(report, index),
       onSave: () => _handleSave(report, index),
+      onEdit: isOwner ? () => _handleEditReport(report, index) : null,
     );
   }
 

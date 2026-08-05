@@ -1,8 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-
+import '../../../../core/widgets/app_toast.dart';
 import '../../../Auth/presentation/providers/auth_provider.dart';
 
 class SplashPage extends ConsumerStatefulWidget {
@@ -20,25 +22,25 @@ class _SplashPageState extends ConsumerState<SplashPage> {
   }
 
   Future<void> _navigateToHome() async {
-    // Ping backend to wake it up (Render sleep workaround)
-    final dataSource = ref.read(authRemoteDataSourceProvider);
-    final isHealthy = await dataSource.checkHealth();
     
-    if (mounted && isHealthy) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Backend Connected! 🚀'), 
-          duration: Duration(milliseconds: 1500),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-    
-    // We don't check auth state to block routing here because 
-    // both guests and users can access /home.
+    unawaited(_wakeBackend());
+
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+
     if (mounted) {
       context.go('/home');
     }
+  }
+
+  Future<void> _wakeBackend() async {
+    final dataSource = ref.read(authRemoteDataSourceProvider);
+    if (!await dataSource.checkHealth()) return;
+
+    AppToast.success(
+      null,
+      'Connected 🚀',
+      duration: const Duration(milliseconds: 1500),
+    );
   }
 
   @override

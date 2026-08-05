@@ -1,14 +1,8 @@
 import 'dart:async';
 
-/// Raised when a map lookup fails in a way worth telling the user about.
-///
-/// The public OpenStreetMap services are free but rate limited, so a burst of
-/// requests can be refused for a short while. That is not a crash and should
-/// not be shown as one.
 class GeoServiceException implements Exception {
   final String message;
 
-  /// True when the service asked us to slow down (HTTP 429 / 503).
   final bool isRateLimited;
 
   const GeoServiceException(this.message, {this.isRateLimited = false});
@@ -28,10 +22,6 @@ class GeoServiceException implements Exception {
   String toString() => message;
 }
 
-/// A tiny time-boxed memory cache with a size cap.
-///
-/// Place coordinates barely change, so repeating the same search during a demo
-/// should not cost another network round trip.
 class GeoRequestCache<T> {
   final Duration ttl;
   final int maxEntries;
@@ -52,7 +42,6 @@ class GeoRequestCache<T> {
       return null;
     }
 
-    // Refresh recency so the hottest keys survive eviction.
     _entries.remove(key);
     _entries[key] = entry;
     return entry.value;
@@ -77,14 +66,10 @@ class _CacheEntry<T> {
   _CacheEntry(this.value, this.storedAt);
 }
 
-/// Thrown by a throttled action that decided it no longer needs to run, e.g.
-/// because the user has typed a newer query in the meantime.
 class ThrottledRequestSkipped implements Exception {
   const ThrottledRequestSkipped();
 }
 
-/// Serialises outgoing calls so we never exceed roughly one request per
-/// [minimumGap] — the usage policy for the free Nominatim servers.
 class RequestThrottle {
   final Duration minimumGap;
 
@@ -92,10 +77,6 @@ class RequestThrottle {
 
   Future<void> _tail = Future.value();
 
-  /// Runs [action] once the previous call has finished and the gap has elapsed.
-  ///
-  /// An action that throws [ThrottledRequestSkipped] sent nothing, so it does
-  /// not consume the gap and the next queued call starts immediately.
   Future<T> run<T>(Future<T> Function() action) {
     final completer = Completer<T>();
 
@@ -110,7 +91,6 @@ class RequestThrottle {
         completer.completeError(error, stackTrace);
       }
 
-      // Hold the queue open for the mandated gap before the next call starts.
       if (didSend) await Future<void>.delayed(minimumGap);
     });
 

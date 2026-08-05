@@ -3,11 +3,12 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../l10n/app_strings.dart';
 import '../../features/Auth/presentation/providers/auth_provider.dart';
+import '../../features/Auth/presentation/widgets/sign_out_action.dart';
 import '../../features/Map/domain/models/map_scope.dart';
 import '../../features/Map/presentation/providers/map_controls_provider.dart';
 import '../../features/Notifications/presentation/providers/notification_provider.dart';
+import '../providers/reload_provider.dart';
 
-/// Index of the Map branch inside the [StatefulShellRoute].
 const int _mapBranchIndex = 1;
 
 class MainScaffold extends ConsumerWidget {
@@ -22,8 +23,6 @@ class MainScaffold extends ConsumerWidget {
     );
   }
 
-  /// Drawer entries for the map services: switch to the map first, then hand
-  /// the action over to the map page through [mapCommandProvider].
   void _runMapAction(BuildContext context, WidgetRef ref, MapAction action) {
     Navigator.pop(context);
     _onTap(_mapBranchIndex);
@@ -32,8 +31,6 @@ class MainScaffold extends ConsumerWidget {
     });
   }
 
-  /// The map's own services, mirrored into the drawer so every standard map
-  /// capability is reachable from the side bar as well as from the map itself.
   List<Widget> _buildMapSection(BuildContext context, WidgetRef ref) {
     final strings = ref.watch(appStringsProvider);
     final scope = ref.watch(mapScopeProvider);
@@ -127,8 +124,6 @@ class MainScaffold extends ConsumerWidget {
     ];
   }
 
-  /// Bell with an unread badge. Alerts are collected from the nearby-incident
-  /// feed, so guests get them too.
   Widget _buildNotificationButton(BuildContext context, WidgetRef ref) {
     final unread = ref.watch(unreadNotificationCountProvider);
 
@@ -169,7 +164,7 @@ class MainScaffold extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
-    final isAuth = authState.status == AuthStatus.authenticated;
+    final isAuth = ref.watch(isAuthenticatedProvider);
     final strings = ref.watch(appStringsProvider);
 
     return Scaffold(
@@ -197,12 +192,20 @@ class MainScaffold extends ConsumerWidget {
               ),
             ),
           _buildNotificationButton(context, ref),
+          if (navigationShell.currentIndex == _mapBranchIndex)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: strings.refresh,
+              onPressed: () {
+                ref.read(reloadProvider.notifier).triggerReload(navigationShell.currentIndex);
+              },
+            ),
           if (isAuth && authState.user != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: GestureDetector(
                 onTap: () {
-                  _onTap(2); // Index 2 is Profile in BottomNavigationBar
+                  _onTap(2); 
                 },
                 child: CircleAvatar(
                   backgroundImage: (authState.user!.image_url != null && authState.user!.image_url!.isNotEmpty)
@@ -319,8 +322,8 @@ class MainScaffold extends ConsumerWidget {
                     leading: const Icon(Icons.settings),
                     title: Text(strings.settings),
                     onTap: () {
-                      Navigator.pop(context); // close drawer
-                      context.push('/settings'); // go to settings (sub-page)
+                      Navigator.pop(context); 
+                      context.push('/settings'); 
                     },
                   ),
                 ],
@@ -334,9 +337,8 @@ class MainScaffold extends ConsumerWidget {
                         leading: const Icon(Icons.logout, color: Colors.redAccent),
                         title: Text(strings.signOut, style: const TextStyle(color: Colors.redAccent)),
                         onTap: () {
-                          Navigator.pop(context); // close drawer
-                          ref.read(authProvider.notifier).signOut();
-                          context.go('/home'); // ensure they are back to home
+                          Navigator.pop(context); 
+                          confirmSignOut(context, ref);
                         },
                       )
                     : Row(
@@ -344,7 +346,7 @@ class MainScaffold extends ConsumerWidget {
                         children: [
                           ElevatedButton.icon(
                             onPressed: () {
-                              Navigator.pop(context); // close drawer
+                              Navigator.pop(context); 
                               context.push('/sign-in');
                             },
                             icon: const Icon(Icons.login, color: Colors.white),
@@ -355,7 +357,7 @@ class MainScaffold extends ConsumerWidget {
                           ),
                           ElevatedButton.icon(
                             onPressed: () {
-                              Navigator.pop(context); // close drawer
+                              Navigator.pop(context); 
                               context.push('/sign-up');
                             },
                             icon: const Icon(Icons.person_add, color: Colors.white),

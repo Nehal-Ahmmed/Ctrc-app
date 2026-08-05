@@ -1,22 +1,30 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/errors/failures.dart';
+import '../../data/datasources/auth_local_datasource.dart';
 import '../../data/datasources/auth_remote_datasource.dart';
 import '../../data/repositories/auth_repository_impl.dart';
 import '../../domain/models/auth_form_model.dart';
 import '../../domain/models/user_model.dart';
 import '../../domain/repositories/auth_repository.dart';
 
-// Data source provider (replace with actual implementation later)
-final authRemoteDataSourceProvider = Provider<AuthRemoteDataSource>((ref) {
-  return AuthRemoteDataSourceImpl();
+final authLocalDataSourceProvider = Provider<AuthLocalDataSource>((ref) {
+  return AuthLocalDataSourceImpl();
 });
 
-// Repository provider
+final authRemoteDataSourceProvider = Provider<AuthRemoteDataSource>((ref) {
+  return AuthRemoteDataSourceImpl(
+    localDataSource: ref.watch(authLocalDataSourceProvider),
+  );
+});
+
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   final dataSource = ref.watch(authRemoteDataSourceProvider);
-  return AuthRepositoryImpl(remoteDataSource: dataSource);
+  return AuthRepositoryImpl(
+    remoteDataSource: dataSource,
+    localDataSource: ref.watch(authLocalDataSourceProvider),
+  );
 });
 
-// Auth state
 enum AuthStatus { uninitialized, authenticated, unauthenticated, loading }
 
 class AuthState {
@@ -25,24 +33,31 @@ class AuthState {
   final String? error;
   final bool isSubmitting;
 
+  final bool isRevalidating;
+
   const AuthState({
     this.status = AuthStatus.uninitialized,
     this.user,
     this.error,
     this.isSubmitting = false,
+    this.isRevalidating = false,
   });
 
   AuthState copyWith({
     AuthStatus? status,
     UserModel? user,
+    
+    bool clearUser = false,
     String? error,
     bool? isSubmitting,
+    bool? isRevalidating,
   }) {
     return AuthState(
       status: status ?? this.status,
-      user: user ?? this.user,
+      user: clearUser ? null : (user ?? this.user),
       error: error,
       isSubmitting: isSubmitting ?? this.isSubmitting,
+      isRevalidating: isRevalidating ?? this.isRevalidating,
     );
   }
 }
@@ -55,15 +70,39 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> _init() async {
-    state = state.copyWith(status: AuthStatus.loading);
+    final cached = _authRepository.cachedUser();
+
+    state = cached != null
+        ? state.copyWith(
+            status: AuthStatus.authenticated,
+            user: cached,
+            isRevalidating: true,
+          )
+        : state.copyWith(status: AuthStatus.loading);
+
     final result = await _authRepository.getCurrentUser();
+
     result.fold(
-      (failure) => state = state.copyWith(
-        status: AuthStatus.unauthenticated,
+      (failure) {
+        
+        if (cached == null || failure is SessionExpiredFailure) {
+          state = state.copyWith(
+            status: AuthStatus.unauthenticated,
+            clearUser: true,
+            isRevalidating: false,
+            error: null,
+          );
+          return;
+        }
+
+        state = state.copyWith(isRevalidating: false, error: null);
+      },
+      (user) => state = state.copyWith(
+        status: AuthStatus.authenticated,
+        user: user,
+        isRevalidating: false,
         error: null,
       ),
-      (user) =>
-          state = state.copyWith(status: AuthStatus.authenticated, user: user),
     );
   }
 
@@ -113,8 +152,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String password,
     required String name,
     required String confirmPassword,
-    String? address,   // Optional — null by default
-    String? image_url, // Optional — null by default
+    String? address,   
+    String? image_url, 
   }) async {
     state = state.copyWith(isSubmitting: true, error: null);
 
@@ -123,8 +162,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       email: email,
       password: password,
       confirmPassword: confirmPassword,
-      address: address,   // nullable — no longer required
-      image_url: image_url, // nullable — no longer required
+      address: address,   
+      image_url: image_url, 
     );
     final validationErrors = form.validateAll();
     final errorMessages = validationErrors.values
@@ -142,8 +181,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       email: email,
       password: password,
       name: name,
-      address: address,   // null if not provided
-      image_url: image_url, // null if not provided
+      address: address,   
+      image_url: image_url, 
     );
 
     return result.fold(
@@ -165,16 +204,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> signOut() async {
     state = state.copyWith(isSubmitting: true);
-    final result = await _authRepository.signOut();
-    result.fold(
-      (failure) =>
-          state = state.copyWith(isSubmitting: false, error: failure.message),
-      (_) => state = state.copyWith(
-        status: AuthStatus.unauthenticated,
-        user: null,
-        isSubmitting: false,
-        error: null,
-      ),
+
+    await _authRepository.signOut();
+
+    state = state.copyWith(
+      status: AuthStatus.unauthenticated,
+      clearUser: true,
+      isSubmitting: false,
+      error: null,
     );
   }
 
@@ -228,7 +265,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  /// Returns null on success, or a message describing why it failed.
   Future<String?> changePassword({
     required String currentPassword,
     required String newPassword,
@@ -254,7 +290,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  /// Kicks off a password reset for [email].
   Future<String?> requestPasswordReset(String email) async {
     state = state.copyWith(isSubmitting: true, error: null);
 
@@ -281,3 +316,16 @@ final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   final repository = ref.watch(authRepositoryProvider);
   return AuthNotifier(repository);
 });
+
+final isAuthenticatedProvider = Provider<bool>(
+  (ref) => ref.watch(
+    authProvider.select(
+      (state) =>
+          state.status == AuthStatus.authenticated && state.user != null,
+    ),
+  ),
+);
+
+final authIdentityProvider = Provider<String?>(
+  (ref) => ref.watch(authProvider.select((state) => state.user?.user_id)),
+);

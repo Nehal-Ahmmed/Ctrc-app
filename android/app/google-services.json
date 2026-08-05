@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1079869769245",
+    "project_id": "push-notification-b3312",
+    "storage_bucket": "push-notification-b3312.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1079869769245:android:ae044603ab77013ae7e8f4",
+        "android_client_info": {
+          "package_name": "com.cuetproject.ctrc"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDaADhS8DDlXSFgkJAK7xeU8cod83n9Tdk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

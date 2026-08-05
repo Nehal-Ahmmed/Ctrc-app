@@ -1,10 +1,17 @@
+import '../../../../core/utils/app_time.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:ctrc/features/Report/domain/models/comment_model.dart';
 import 'package:ctrc/features/Report/domain/models/report_category.dart';
 import 'package:ctrc/features/Report/domain/models/report_model.dart';
+import 'package:ctrc/features/Report/domain/services/report_share.dart';
 import 'package:ctrc/features/Report/presentation/widgets/voters_bottom_sheet.dart';
+
+const Color _cardSurface = Colors.white;
+const Color _hairline = Color(0xFFE4E6EB);
+const Color _secondaryText = Color(0xFF65676B);
+const Color _upvoteBlue = Color(0xFF1877F2);
+const Color _downvoteRed = Color(0xFFD93025);
 
 class ReportCardWidget extends StatelessWidget {
   final ReportModel report;
@@ -14,9 +21,9 @@ class ReportCardWidget extends StatelessWidget {
   final VoidCallback onComment;
   final VoidCallback? onSave;
 
-  /// Tapping the card body opens the full report. Pass a callback to override
-  /// the default push to `/report/:id`.
   final VoidCallback? onOpen;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const ReportCardWidget({
     super.key,
@@ -27,6 +34,8 @@ class ReportCardWidget extends StatelessWidget {
     required this.onComment,
     this.onSave,
     this.onOpen,
+    this.onEdit,
+    this.onDelete,
   });
 
   String _formatDistance() {
@@ -63,175 +72,278 @@ class ReportCardWidget extends StatelessWidget {
     );
   }
 
+  void _share(BuildContext context) {
+    final box = context.findRenderObject() as RenderBox?;
+    ReportShare.share(
+      report,
+      origin: box != null && box.hasSize
+          ? box.localToGlobal(Offset.zero) & box.size
+          : null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final category = ReportCategory.fromLabel(report.category);
-    final createdAt = CommentModel.parseTimestamp(report.createdAt);
+    final createdAt = AppTime.parseTimestamp(report.createdAt);
     final distance = _formatDistance();
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+      margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
+      color: _cardSurface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
       child: InkWell(
         onTap: () => _open(context),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: category.color.withValues(alpha: 0.15),
-                    child: Icon(category.icon, color: category.color),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          report.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                        Text(
-                          [
-                            category.label,
-                            if (report.evidenceType == 'heard')
-                              'heard from others',
-                            if (report.evidenceType == 'guessed') 'a guess',
-                            if (createdAt != null)
-                              formatRelativeTime(createdAt),
-                            if (distance.isNotEmpty) distance,
-                          ].join(' · '),
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        _buildStatusBadge(),
-                      ],
-                    ),
-                  ),
-                  if (onSave != null)
-                    IconButton(
-                      tooltip:
-                          report.isSaved ? 'Remove from saved' : 'Save post',
-                      icon: Icon(
-                        report.isSaved ? Icons.bookmark : Icons.bookmark_border,
-                        color: report.isSaved ? Colors.blue : Colors.grey,
-                      ),
-                      onPressed: onSave,
-                    ),
-                ],
-              ),
-              if (report.description != null &&
-                  report.description!.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text(
-                  report.description!,
-                  maxLines: 4,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 15),
-                ),
-              ],
-              if (report.subReportCount > 0) ...[
-                const SizedBox(height: 12),
-                _buildIncidentGroupPill(context),
-              ],
-              const SizedBox(height: 16),
-              const Divider(height: 1),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      _buildVoteButton(
-                        context,
-                        icon: Icons.arrow_upward,
-                        count: report.upvoteCount,
-                        isActive: report.userVoteType == 'up',
-                        activeColor: Colors.blue,
-                        onPressed: onUpvote,
+                      CircleAvatar(
+                        backgroundColor: category.color.withValues(alpha: 0.15),
+                        child: Icon(category.icon, color: category.color),
                       ),
-                      const SizedBox(width: 8),
-                      _buildVoteButton(
-                        context,
-                        icon: Icons.arrow_downward,
-                        count: report.downvoteCount,
-                        isActive: report.userVoteType == 'down',
-                        activeColor: Colors.red,
-                        onPressed: onDownvote,
-                      ),
-                    ],
-                  ),
-                  // Comment Button
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                        color: Colors.grey[300]!,
-                        width: 1,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: InkWell(
-                      onTap: onComment,
-                      borderRadius: BorderRadius.circular(24),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(
-                              Icons.comment_outlined,
-                              size: 18,
-                              color: Colors.grey[600],
-                            ),
-                            const SizedBox(width: 6),
                             Text(
-                              '${report.commentCount}',
-                              style: TextStyle(
+                              report.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                                color: Colors.grey[700],
+                                fontSize: 16,
                               ),
                             ),
+                            Text(
+                              [
+                                category.label,
+                                if (report.evidenceType == 'heard')
+                                  'heard from others',
+                                if (report.evidenceType == 'guessed') 'a guess',
+                                if (createdAt != null)
+                                  AppTime.formatRelativeTime(createdAt),
+                                if (report.updatedAt != null) 'edited',
+                                if (distance.isNotEmpty) distance,
+                              ].join(' · '),
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            _buildStatusBadge(),
                           ],
                         ),
                       ),
-                    ),
+                      if (onEdit != null)
+                        IconButton(
+                          tooltip: 'Edit report',
+                          icon: const Icon(
+                            Icons.edit_outlined,
+                            color: Colors.grey,
+                          ),
+                          onPressed: onEdit,
+                        ),
+                      if (onDelete != null)
+                        IconButton(
+                          tooltip: 'Delete report',
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.grey,
+                          ),
+                          onPressed: onDelete,
+                        ),
+                      if (onSave != null)
+                        IconButton(
+                          tooltip: report.isSaved
+                              ? 'Remove from saved'
+                              : 'Save post',
+                          icon: Icon(
+                            report.isSaved
+                                ? Icons.bookmark
+                                : Icons.bookmark_border,
+                            color: report.isSaved ? Colors.blue : Colors.grey,
+                          ),
+                          onPressed: onSave,
+                        ),
+                    ],
                   ),
+                  if (report.description != null &&
+                      report.description!.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      report.description!,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15),
+                    ),
+                  ],
+                  if (report.subReportCount > 0) ...[
+                    const SizedBox(height: 12),
+                    _buildIncidentGroupPill(context),
+                  ],
                 ],
               ),
+            ),
+            if (report.imageUrl != null && report.imageUrl!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildPhoto(),
             ],
-          ),
+            _buildFooter(context),
+          ],
         ),
       ),
     );
   }
 
-  /// Whether the community has backed this report up yet. Worked out by a
-  /// database trigger: how many upvotes it takes depends on how the reporter
-  /// knew about the incident in the first place.
+  Widget _buildFooter(BuildContext context) {
+    final hasTally = report.upvoteCount > 0 ||
+        report.downvoteCount > 0 ||
+        report.commentCount > 0;
+
+    return Column(
+      children: [
+        if (hasTally) _buildTally(context),
+        Padding(
+          padding: EdgeInsets.fromLTRB(12, hasTally ? 0 : 8, 12, 0),
+          child: const Divider(height: 1, thickness: 1, color: _hairline),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          child: Row(
+            children: [
+              _FooterAction(
+                icon: Icons.arrow_upward,
+                label: 'Upvote',
+                isActive: report.userVoteType == 'up',
+                activeColor: _upvoteBlue,
+                onTap: onUpvote,
+              ),
+              _FooterAction(
+                icon: Icons.arrow_downward,
+                label: 'Downvote',
+                isActive: report.userVoteType == 'down',
+                activeColor: _downvoteRed,
+                onTap: onDownvote,
+              ),
+              _FooterAction(
+                icon: Icons.mode_comment_outlined,
+                label: 'Comment',
+                onTap: onComment,
+              ),
+              _FooterAction(
+                icon: Icons.share_outlined,
+                label: 'Share',
+                onTap: () => _share(context),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTally(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+      child: Row(
+        children: [
+          if (report.upvoteCount > 0 || report.downvoteCount > 0)
+            InkWell(
+              onTap: () => _showVoters(context),
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (report.upvoteCount > 0) ...[
+                      const _TallyBadge(
+                        icon: Icons.arrow_upward,
+                        color: _upvoteBlue,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        '${report.upvoteCount}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: _secondaryText,
+                        ),
+                      ),
+                    ],
+                    if (report.upvoteCount > 0 && report.downvoteCount > 0)
+                      const SizedBox(width: 10),
+                    if (report.downvoteCount > 0) ...[
+                      const _TallyBadge(
+                        icon: Icons.arrow_downward,
+                        color: _downvoteRed,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        '${report.downvoteCount}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: _secondaryText,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          const Spacer(),
+          if (report.commentCount > 0)
+            InkWell(
+              onTap: onComment,
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                child: Text(
+                  report.commentCount == 1
+                      ? '1 comment'
+                      : '${report.commentCount} comments',
+                  style: const TextStyle(fontSize: 13, color: _secondaryText),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhoto() {
+    return Image.network(
+      report.imageUrl!,
+      width: double.infinity,
+      height: 220,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return Container(
+          height: 220,
+          alignment: Alignment.center,
+          color: Colors.grey[200],
+          child: const SizedBox(
+            height: 22,
+            width: 22,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stack) => const SizedBox.shrink(),
+    );
+  }
+
   Widget _buildStatusBadge() {
     final (label, color) = switch (report.status) {
       'verified' => ('Verified', const Color(0xFF1E8E3E)),
@@ -256,9 +368,6 @@ class ReportCardWidget extends StatelessWidget {
     );
   }
 
-  /// Shows that other people linked their reports to this one, which is the
-  /// visible half of the incident-group idea — without it a card looks like a
-  /// lone sighting no matter how many people confirmed it.
   Widget _buildIncidentGroupPill(BuildContext context) {
     final count = report.subReportCount;
 
@@ -295,64 +404,71 @@ class ReportCardWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildVoteButton(
-    BuildContext context, {
-    required IconData icon,
-    required int count,
-    required bool isActive,
-    required Color activeColor,
-    required VoidCallback onPressed,
-  }) {
+}
+
+class _TallyBadge extends StatelessWidget {
+  const _TallyBadge({required this.icon, required this.color});
+
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
-        color: isActive
-            ? activeColor.withValues(alpha: 0.08)
-            : Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: isActive ? activeColor : Colors.grey[300]!,
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            icon: Icon(
-              icon,
-              size: 18,
-              color: isActive ? activeColor : Colors.grey[600],
-            ),
-            onPressed: onPressed,
-          ),
-          InkWell(
-            onTap: () => _showVoters(context),
-            borderRadius: const BorderRadius.only(
-              topRight: Radius.circular(24),
-              bottomRight: Radius.circular(24),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.only(right: 12, top: 6, bottom: 6),
-              child: Text(
-                '$count',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                  color: isActive ? activeColor : Colors.grey[700],
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      alignment: Alignment.center,
+      child: Icon(icon, size: 10, color: Colors.white),
+    );
+  }
+}
+
+class _FooterAction extends StatelessWidget {
+  const _FooterAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.isActive = false,
+    this.activeColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool isActive;
+  final Color? activeColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isActive ? (activeColor ?? _upvoteBlue) : _secondaryText;
+
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 19, color: color),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

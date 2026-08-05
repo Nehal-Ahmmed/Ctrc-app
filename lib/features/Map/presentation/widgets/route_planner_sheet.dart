@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/widgets/app_toast.dart';
 import '../../data/datasources/geocoding_datasource.dart';
 import 'place_autocomplete_field.dart';
 
-/// A confirmed from → to pair, handed back to the map to be routed.
 class RouteRequest {
   final LatLng from;
   final String fromLabel;
@@ -19,8 +19,6 @@ class RouteRequest {
   });
 }
 
-/// Google-Maps style directions sheet: pick a start and a destination (both
-/// with suggestions), then hit Done to draw the road.
 class RoutePlannerSheet extends StatefulWidget {
   final GeocodingDataSource geocoder;
   final LatLng? currentLocation;
@@ -84,9 +82,7 @@ class _RoutePlannerSheetState extends State<RoutePlannerSheet> {
   void _useCurrentLocation() {
     final here = widget.currentLocation;
     if (here == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Still waiting for a GPS fix')),
-      );
+      AppToast.warning(context, 'Still waiting for a GPS fix');
       return;
     }
     setState(() => _from = here);

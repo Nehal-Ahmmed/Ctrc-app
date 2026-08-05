@@ -2,18 +2,10 @@ import 'dart:math' as math;
 
 import 'package:latlong2/latlong.dart';
 
-/// Mean earth radius used for the local planar projections below.
 const double kEarthRadiusMeters = 6378137.0;
 
-/// The result of projecting a point onto a polyline.
 typedef PolylineProjection = ({double offsetMeters, double alongMeters});
 
-/// Small geodesic helpers used by the map feature.
-///
-/// Distances between two points use latlong2's haversine [Distance]. Anything
-/// that needs a perpendicular distance to a line falls back to a local
-/// equirectangular projection, which is accurate to well under a metre at the
-/// corridor widths we care about (a few km).
 class GeoUtils {
   GeoUtils._();
 
@@ -22,7 +14,6 @@ class GeoUtils {
   static double metersBetween(LatLng a, LatLng b) =>
       _distance.as(LengthUnit.Meter, a, b);
 
-  /// Perpendicular distance in meters from [p] to the segment [a]-[b].
   static double distanceToSegment(LatLng p, LatLng a, LatLng b) {
     final lat0 = (a.latitude + b.latitude + p.latitude) / 3 * math.pi / 180;
     final cosLat = math.cos(lat0);
@@ -47,8 +38,6 @@ class GeoUtils {
     return math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
   }
 
-  /// Shortest distance in meters from [p] to a polyline, plus how far along the
-  /// polyline the closest point sits. Returns `(infinity, 0)` for empty lines.
   static PolylineProjection projectOnPolyline(LatLng p, List<LatLng> line) {
     if (line.isEmpty) return (offsetMeters: double.infinity, alongMeters: 0);
     if (line.length == 1) {
@@ -66,7 +55,7 @@ class GeoUtils {
       final d = distanceToSegment(p, a, b);
       if (d < best) {
         best = d;
-        // Approximate the along-track position by projecting onto the segment.
+        
         final da = metersBetween(p, a);
         final projected = math.sqrt(math.max(0, da * da - d * d));
         bestAlong = travelled + math.min(projected, segmentLength);
@@ -88,8 +77,6 @@ class GeoUtils {
     return total;
   }
 
-  /// Picks points along [line] roughly [spacingMeters] apart. Always includes
-  /// the first and last point so the whole route is covered.
   static List<LatLng> sampleEvery(List<LatLng> line, double spacingMeters) {
     if (line.isEmpty) return const [];
     if (line.length == 1) return [line.first];
@@ -109,8 +96,6 @@ class GeoUtils {
     return samples;
   }
 
-  /// Splits [line] into consecutive chunks of about [chunkMeters] each. Chunks
-  /// share their boundary point so the rendered polylines join without gaps.
   static List<List<LatLng>> chunk(List<LatLng> line, double chunkMeters) {
     if (line.length < 2) return line.isEmpty ? const [] : [line];
 
@@ -132,7 +117,6 @@ class GeoUtils {
     return chunks;
   }
 
-  /// Initial bearing in degrees (0 = north) from [a] to [b].
   static double bearing(LatLng a, LatLng b) {
     final lat1 = a.latitude * math.pi / 180;
     final lat2 = b.latitude * math.pi / 180;
@@ -144,8 +128,6 @@ class GeoUtils {
     return (deg + 360) % 360;
   }
 
-  /// Zoom level that roughly fits a circle of [radiusMeters] on a screen of
-  /// [viewportPixels] wide. Used to frame the selected radius scope.
   static double zoomForRadius(
     double radiusMeters,
     double latitude, {

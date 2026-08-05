@@ -1,9 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../../core/storage/local_store.dart';
 import '../../../Map/domain/services/incident_severity.dart';
 import '../../../Map/domain/utils/geo_utils.dart';
 import '../../../Report/domain/models/report_model.dart';
@@ -12,7 +10,6 @@ import '../../domain/models/app_notification.dart';
 class NotificationState {
   final List<AppNotification> items;
 
-  /// False until the stored history has been read back off disk.
   final bool isLoaded;
 
   const NotificationState({this.items = const [], this.isLoaded = false});
@@ -27,51 +24,33 @@ class NotificationState {
   }
 }
 
-/// Turns the nearby-incident feed into an alert inbox.
-///
-/// Pages that already fetch nearby reports hand them to [ingest]; anything the
-/// user has not been told about yet becomes a notification. Nothing extra is
-/// fetched, so this costs no additional network traffic.
 class NotificationController extends StateNotifier<NotificationState> {
-  static const _itemsKey = 'notifications_items';
-  static const _seenKey = 'notifications_seen_report_ids';
   static const _maxItems = 60;
 
-  /// Report ids the user has already been shown. Kept separate from [items] so
-  /// clearing the list does not resurrect every old incident.
+  final LocalStore _store;
+
   final Set<int> _seen = <int>{};
 
-  /// Nothing has been ingested yet on this install — seed silently instead of
-  /// dumping every existing incident into the inbox at once.
   bool _isFirstIngest = true;
 
-  NotificationController() : super(const NotificationState()) {
+  NotificationController({LocalStore? store})
+      : _store = store ?? LocalStore.instance,
+        super(const NotificationState()) {
     _restore();
   }
 
-  Future<void> _restore() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final seen = prefs.getStringList(_seenKey) ?? const [];
+  void _restore() {
+    final seen = _store.getStringList(StorageKeys.notificationSeenIds) ?? const [];
     _seen.addAll(seen.map(int.tryParse).whereType<int>());
     _isFirstIngest = _seen.isEmpty;
 
-    final raw = prefs.getString(_itemsKey);
+    final decoded = _store.getJson(StorageKeys.notificationItems);
     final items = <AppNotification>[];
-    if (raw != null && raw.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          for (final entry in decoded) {
-            if (entry is Map) {
-              items.add(
-                AppNotification.fromJson(Map<String, dynamic>.from(entry)),
-              );
-            }
-          }
+    if (decoded is List) {
+      for (final entry in decoded) {
+        if (entry is Map) {
+          items.add(AppNotification.fromJson(Map<String, dynamic>.from(entry)));
         }
-      } catch (_) {
-        // Corrupt cache is not worth crashing over; start from empty.
       }
     }
 
@@ -79,25 +58,19 @@ class NotificationController extends StateNotifier<NotificationState> {
   }
 
   Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _itemsKey,
-      jsonEncode(state.items.map((n) => n.toJson()).toList()),
+    await _store.setJson(
+      StorageKeys.notificationItems,
+      state.items.map((n) => n.toJson()).toList(),
     );
-    // Bound the seen set so it cannot grow without limit on a busy map.
+    
     final seen = _seen.toList();
     final trimmed = seen.length > 500 ? seen.sublist(seen.length - 500) : seen;
-    await prefs.setStringList(
-      _seenKey,
+    await _store.setStringList(
+      StorageKeys.notificationSeenIds,
       trimmed.map((id) => id.toString()).toList(),
     );
   }
 
-  /// Records any previously unseen incidents from [reports].
-  ///
-  /// [enabled] mirrors the "Nearby Incident Alerts" preference — when off the
-  /// reports are still marked as seen so turning it back on does not replay
-  /// everything that happened in the meantime.
   Future<void> ingest(
     List<ReportModel> reports, {
     LatLng? viewerLocation,
@@ -114,7 +87,6 @@ class NotificationController extends StateNotifier<NotificationState> {
       _seen.add(report.reportId);
       changed = true;
 
-      // Your own reports, and anything already expired, are not news.
       if (report.userId == viewerUserId) continue;
       if (!IncidentSeverity.isActive(report)) continue;
       if (_isFirstIngest || !enabled) continue;
@@ -191,7 +163,6 @@ final notificationsProvider =
   (ref) => NotificationController(),
 );
 
-/// Convenience selector for the app-bar badge.
 final unreadNotificationCountProvider = Provider<int>(
   (ref) => ref.watch(notificationsProvider).unreadCount,
 );

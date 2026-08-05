@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/widgets/sub_page_app_bar.dart';
 
-/// Settings › Help Center / FAQ, previously an empty `onTap`.
 class HelpCenterPage extends StatelessWidget {
   const HelpCenterPage({super.key});
 

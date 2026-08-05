@@ -6,18 +6,9 @@ import '../../domain/models/map_scope.dart';
 import '../../domain/models/place_suggestion.dart';
 import 'geo_request_cache.dart';
 
-/// Nominatim-backed search / reverse geocoding.
-///
-/// Nominatim is free but asks for an identifying User-Agent and no more than
-/// one request a second. Three things keep us inside that budget:
-///  * callers debounce typing (see `PlaceAutocompleteField`),
-///  * every result is cached, so repeating a search costs nothing,
-///  * outgoing calls are serialised through a [RequestThrottle].
 class GeocodingDataSource {
   final Dio _dio;
 
-  /// Shared across instances so the map page and the route planner sheet see
-  /// each other's cached results and share one request budget.
   static final GeoRequestCache<List<PlaceSuggestion>> _searchCache =
       GeoRequestCache<List<PlaceSuggestion>>();
   static final GeoRequestCache<ResolvedArea> _areaCache =
@@ -40,10 +31,6 @@ class GeocodingDataSource {
               ),
             );
 
-  /// Free-text place / institution lookup. Results are biased towards [near]
-  /// when a location is known so local matches surface first.
-  ///
-  /// Throws [GeoServiceException] when the service is unreachable or busy.
   Future<List<PlaceSuggestion>> search(
     String query, {
     LatLng? near,
@@ -68,7 +55,7 @@ class GeocodingDataSource {
     };
 
     if (near != null) {
-      // ~1.5 degree box around the user, as a soft preference only.
+      
       params['viewbox'] = '${near.longitude - 1.5},${near.latitude + 1.5},'
           '${near.longitude + 1.5},${near.latitude - 1.5}';
       params['bounded'] = 0;
@@ -76,8 +63,7 @@ class GeocodingDataSource {
 
     try {
       final response = await _throttle.run(() {
-        // The user may have typed on while we waited our turn in the queue;
-        // skipping here also frees the slot for the newer query immediately.
+        
         if (cancelToken?.isCancelled ?? false) {
           throw const ThrottledRequestSkipped();
         }
@@ -100,7 +86,7 @@ class GeocodingDataSource {
       _searchCache.put(cacheKey, results);
       return results;
     } on ThrottledRequestSkipped {
-      // A newer query is already running; the caller ignores stale results.
+      
       return const [];
     } on DioException catch (e) {
       if (e.type == DioExceptionType.cancel) rethrow;
@@ -108,8 +94,6 @@ class GeocodingDataSource {
     }
   }
 
-  /// Resolves an administrative [scope] (city / division) around [at] into a
-  /// concrete circle + bounding box. Falls back to a fixed radius on failure.
   Future<ResolvedArea> resolveArea({
     required LatLng at,
     required MapScope scope,
@@ -119,8 +103,6 @@ class GeocodingDataSource {
       return ResolvedArea(scope: scope, center: at, radiusMeters: fixed);
     }
 
-    // Administrative areas are huge, so a coarse key still hits for anyone
-    // moving around inside the same city.
     final cacheKey = '${scope.name}|${_round(at.latitude, 1)},'
         '${_round(at.longitude, 1)}';
     final cached = _areaCache.get(cacheKey);
@@ -166,7 +148,7 @@ class GeocodingDataSource {
           name: name,
         );
       } else {
-        // Guard against Nominatim occasionally handing back a country-sized box.
+        
         final radius = bounds.radiusMeters.clamp(
           scope == MapScope.city ? 3000.0 : 20000.0,
           scope == MapScope.city ? 60000.0 : 300000.0,
@@ -184,12 +166,11 @@ class GeocodingDataSource {
       _areaCache.put(cacheKey, area);
       return area;
     } catch (_) {
-      // The map still works with a sensible fixed radius, so never surface this.
+      
       return ResolvedArea.fallback(scope, at);
     }
   }
 
-  /// Short human label for a point, used for the "From: current location" row.
   Future<String?> describe(LatLng at) async {
     final cacheKey = '${_round(at.latitude, 3)},${_round(at.longitude, 3)}';
     final cached = _describeCache.get(cacheKey);

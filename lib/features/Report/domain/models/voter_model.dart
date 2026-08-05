@@ -2,7 +2,7 @@ class VoterModel {
   final int userId;
   final String userName;
   final String? userImageUrl;
-  final String voteType; // 'up' or 'down'
+  final String voteType; 
 
   const VoterModel({
     required this.userId,

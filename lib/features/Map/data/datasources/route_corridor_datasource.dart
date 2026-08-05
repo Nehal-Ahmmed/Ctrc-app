@@ -1,19 +1,15 @@
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../../core/storage/local_store.dart';
 import '../../../Report/domain/models/report_model.dart';
 
-/// One incident returned by the corridor scan, with where it sits relative to
-/// the road.
 typedef CorridorHit = ({
   ReportModel report,
   double offsetMeters,
   double alongMeters,
 });
 
-/// Thrown when the backend does not expose `/api/reports/along-route` yet, so
-/// the caller can fall back to probing `/nearby` along the route.
 class CorridorEndpointUnavailable implements Exception {
   final String message;
   const CorridorEndpointUnavailable(this.message);
@@ -22,7 +18,6 @@ class CorridorEndpointUnavailable implements Exception {
   String toString() => message;
 }
 
-/// Talks to the single-call route corridor endpoint.
 class RouteCorridorDataSource {
   final Dio dio;
 
@@ -51,11 +46,10 @@ class RouteCorridorDataSource {
     if (path.isEmpty) return const [];
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
+      final token = LocalStore.instance.getString(StorageKeys.authToken);
 
       final headers = <String, dynamic>{
-        if (token != null) 'Authorization': 'Bearer $token',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
         if (userId != null) 'X-User-Id': userId.toString(),
       };
 
@@ -86,8 +80,7 @@ class RouteCorridorDataSource {
           .toList();
     } on DioException catch (e) {
       final status = e.response?.statusCode;
-      // A backend that predates this endpoint answers 404/405; treat that as
-      // "not deployed yet" rather than a hard failure.
+      
       if (status == 404 || status == 405 || status == 501) {
         throw CorridorEndpointUnavailable(
           'Backend has no /along-route endpoint (HTTP $status)',

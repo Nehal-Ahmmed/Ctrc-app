@@ -1,16 +1,22 @@
 import 'package:dio/dio.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/storage/local_store.dart';
 import '../../domain/models/comment_model.dart';
+import '../../domain/models/feed_filter.dart';
 import '../../domain/models/report_model.dart';
+import '../../domain/models/sub_report_model.dart';
 import '../../domain/models/voter_model.dart';
 
 abstract class ReportRemoteDataSource {
+  
   Future<List<ReportModel>> getNearbyReports({
     required double lat,
     required double lng,
     double radius = 5.0,
     String? category,
     int? userId,
+    FeedFilter? filter,
+
+    int? withinHours,
   });
     Future<void> createReport({
         required int userId,
@@ -20,10 +26,45 @@ abstract class ReportRemoteDataSource {
         required String description,
         required String category,
         String evidenceType,
+        String? imageUrl,
         int? parentReportId,
         String? address,
         String? city,
     });
+
+    Future<ReportModel> updateReport({
+        required int reportId,
+        required int userId,
+        required String title,
+        required String description,
+        required String category,
+        String evidenceType,
+        String? imageUrl,
+    });
+
+    Future<void> deleteReport({
+        required int reportId,
+        required int userId,
+    });
+
+    Future<String> uploadReportImage(String filePath);
+
+    Future<SubReportModel> getSubReportById(int subReportId, {int? userId});
+
+    Future<List<CommentModel>> getSubReportComments(int subReportId, {int? userId});
+
+    Future<void> addSubReportComment({
+        required int subReportId,
+        required int userId,
+        required String content,
+    });
+
+    Future<void> voteSubReport({
+        required int subReportId,
+        required int userId,
+        required String type,
+    });
+
     Future<void> voteReport({
         required int reportId,
         required int userId,
@@ -39,14 +80,16 @@ abstract class ReportRemoteDataSource {
     Future<void> saveReport(int reportId, int userId);
     Future<void> unsaveReport(int reportId, int userId);
 
-    /// Single report with its location, used by the report details page.
-    /// Pass [userId] so the server can resolve saved / vote state.
     Future<ReportModel> getReportById(int reportId, {int? userId});
 
-    /// Comment thread for a report, oldest first.
-    Future<List<CommentModel>> getComments(int reportId);
+    Future<List<CommentModel>> getComments(int reportId, {int? userId});
 
-    /// Voters list for a report.
+    Future<String?> voteComment({
+        required int commentId,
+        required int userId,
+        required String type,
+    });
+
     Future<List<VoterModel>> getVotes(int reportId);
 }
 
@@ -60,8 +103,9 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
             (Dio(
               BaseOptions(
                 baseUrl: baseUrl,
-                connectTimeout: const Duration(seconds: 10),
-                receiveTimeout: const Duration(seconds: 10),
+                
+                connectTimeout: const Duration(seconds: 60),
+                receiveTimeout: const Duration(seconds: 60),
                 headers: {
                   'Content-Type': 'application/json',
                   'Accept': 'application/json',
@@ -83,18 +127,12 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     required String description,
     required String category,
     String evidenceType = 'seen',
+    String? imageUrl,
     int? parentReportId,
     String? address,
     String? city,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-
-      final options = token != null
-          ? Options(headers: {'Authorization': 'Bearer $token'})
-          : Options();
-
       final response = await dio.post(
         '/api/reports',
         data: {
@@ -105,11 +143,12 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
           'description': description,
           'category': category,
           'evidenceType': evidenceType,
+          if (imageUrl != null && imageUrl.isNotEmpty) 'imageUrl': imageUrl,
           if (parentReportId != null) 'parentReportId': parentReportId,
           if (address != null && address.isNotEmpty) 'address': address,
           if (city != null && city.isNotEmpty) 'city': city,
         },
-        options: options,
+        options: _authOptions(),
       );
 
       if (response.statusCode != 201 && response.statusCode != 200) {
@@ -122,30 +161,169 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
   }
 
   @override
+  Future<ReportModel> updateReport({
+    required int reportId,
+    required int userId,
+    required String title,
+    required String description,
+    required String category,
+    String evidenceType = 'seen',
+    String? imageUrl,
+  }) async {
+    try {
+      final response = await dio.put(
+        '/api/reports/$reportId',
+        data: {
+          'title': title,
+          'description': description,
+          'category': category,
+          'evidenceType': evidenceType,
+          'imageUrl': imageUrl,
+        },
+        options: _authOptions(userId: userId),
+      );
+
+      final body = response.data;
+      if (body is Map && body['data'] is Map) {
+        return ReportModel.fromJson(
+          Map<String, dynamic>.from(body['data'] as Map),
+        );
+      }
+      throw Exception('Failed to update report');
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Failed to update report');
+    }
+  }
+
+  @override
+  Future<void> deleteReport({
+    required int reportId,
+    required int userId,
+  }) async {
+    try {
+      final response = await dio.delete(
+        '/api/reports/$reportId',
+        options: _authOptions(userId: userId),
+      );
+      if (response.statusCode != 200) {
+        throw Exception('Failed to delete report');
+      }
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Failed to delete report');
+    }
+  }
+
+  @override
+  Future<SubReportModel> getSubReportById(int subReportId, {int? userId}) async {
+    try {
+      final response = await dio.get(
+        '/api/sub-reports/$subReportId',
+        options: userId != null ? _authOptions(userId: userId) : null,
+      );
+      return SubReportModel.fromJson(response.data['data']);
+    } catch (e) {
+      throw Exception('Failed to load sub-report');
+    }
+  }
+
+  @override
+  Future<List<CommentModel>> getSubReportComments(int subReportId,
+      {int? userId}) async {
+    try {
+      final response = await dio.get(
+        '/api/sub-reports/$subReportId/comments',
+        options: _authOptions(userId: userId),
+      );
+      final list = response.data['data'] as List;
+      return list.map((c) => CommentModel.fromJson(c)).toList();
+    } catch (e) {
+      throw Exception('Failed to load sub-report comments');
+    }
+  }
+
+  @override
+  Future<void> addSubReportComment({
+    required int subReportId,
+    required int userId,
+    required String content,
+  }) async {
+    try {
+      await dio.post(
+        '/api/sub-reports/$subReportId/comments',
+        data: {'content': content},
+        options: _authOptions(userId: userId),
+      );
+    } catch (e) {
+      throw Exception('Failed to add comment to sub-report');
+    }
+  }
+
+  @override
+  Future<void> voteSubReport({
+    required int subReportId,
+    required int userId,
+    required String type,
+  }) async {
+    try {
+      await dio.post(
+        '/api/sub-reports/$subReportId/vote',
+        data: {'type': type},
+        options: _authOptions(userId: userId),
+      );
+    } catch (e) {
+      throw Exception('Failed to vote on sub-report');
+    }
+  }
+
+  @override
+  Future<String> uploadReportImage(String filePath) async {
+    try {
+      final formData = FormData.fromMap({
+        'file': await MultipartFile.fromFile(filePath),
+      });
+
+      final response = await dio.post(
+        '/api/reports/upload-image',
+        data: formData,
+        options: Options(headers: {'Content-Type': 'multipart/form-data'}),
+      );
+
+      final body = response.data;
+      final url = body is Map
+          ? (body['data'] is Map ? body['data']['url'] : body['url'])
+          : null;
+
+      if (url is! String || url.isEmpty) {
+        throw Exception('Upload did not return an image link');
+      }
+      return url;
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Failed to upload the photo');
+    }
+  }
+
+  @override
   Future<List<ReportModel>> getNearbyReports({
     required double lat,
     required double lng,
     double radius = 5.0,
     String? category,
     int? userId,
+    FeedFilter? filter,
+    int? withinHours,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      
-      final options = token != null 
-          ? Options(headers: {
-              'Authorization': 'Bearer $token',
-              if (userId != null) 'X-User-Id': userId.toString(),
-            })
-          : (userId != null 
-              ? Options(headers: {'X-User-Id': userId.toString()})
-              : Options());
-
       final Map<String, dynamic> queryParams = {
         'lat': lat,
         'lng': lng,
         'radius': radius,
+        
+        if (filter != null) ...filter.toQueryParameters(),
+        
+        if (withinHours != null) 'withinHours': withinHours,
       };
       if (category != null && category.isNotEmpty && category != 'All') {
         queryParams['category'] = category;
@@ -154,7 +332,7 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
       final response = await dio.get(
         '/api/reports/nearby',
         queryParameters: queryParams,
-        options: options,
+        options: _authOptions(userId: userId),
       );
 
       if (response.statusCode == 200) {
@@ -181,20 +359,10 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     required String type,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      
-      final options = token != null 
-          ? Options(headers: {
-              'Authorization': 'Bearer $token',
-              'X-User-Id': userId.toString(),
-            })
-          : Options(headers: {'X-User-Id': userId.toString()});
-
       final response = await dio.post(
         '/api/reports/$reportId/vote',
         data: {'type': type},
-        options: options,
+        options: _authOptions(userId: userId),
       );
 
       if (response.statusCode != 200) {
@@ -209,13 +377,10 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
   @override
   Future<List<ReportModel>> getMyReports(int userId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      final options = token != null 
-          ? Options(headers: {'Authorization': 'Bearer $token', 'X-User-Id': userId.toString()})
-          : Options(headers: {'X-User-Id': userId.toString()});
-
-      final response = await dio.get('/api/reports/my-reports', options: options);
+      final response = await dio.get(
+        '/api/reports/my-reports',
+        options: _authOptions(userId: userId),
+      );
       if (response.statusCode == 200) {
         final List data = response.data['data'];
         return data.map((json) => ReportModel.fromJson(json as Map<String, dynamic>)).toList();
@@ -229,13 +394,10 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
   @override
   Future<List<ReportModel>> getSavedReports(int userId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      final options = token != null 
-          ? Options(headers: {'Authorization': 'Bearer $token', 'X-User-Id': userId.toString()})
-          : Options(headers: {'X-User-Id': userId.toString()});
-
-      final response = await dio.get('/api/reports/saved', options: options);
+      final response = await dio.get(
+        '/api/reports/saved',
+        options: _authOptions(userId: userId),
+      );
       if (response.statusCode == 200) {
         final List data = response.data['data'];
         return data.map((json) {
@@ -252,13 +414,10 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
   @override
   Future<void> saveReport(int reportId, int userId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      final options = token != null 
-          ? Options(headers: {'Authorization': 'Bearer $token', 'X-User-Id': userId.toString()})
-          : Options(headers: {'X-User-Id': userId.toString()});
-
-      final response = await dio.post('/api/reports/$reportId/save', options: options);
+      final response = await dio.post(
+        '/api/reports/$reportId/save',
+        options: _authOptions(userId: userId),
+      );
       if (response.statusCode != 200) throw Exception('Failed to save report');
     } catch (e) {
       throw Exception('Failed to save report: $e');
@@ -268,13 +427,10 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
   @override
   Future<void> unsaveReport(int reportId, int userId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      final options = token != null 
-          ? Options(headers: {'Authorization': 'Bearer $token', 'X-User-Id': userId.toString()})
-          : Options(headers: {'X-User-Id': userId.toString()});
-
-      final response = await dio.delete('/api/reports/$reportId/save', options: options);
+      final response = await dio.delete(
+        '/api/reports/$reportId/save',
+        options: _authOptions(userId: userId),
+      );
       if (response.statusCode != 200) throw Exception('Failed to unsave report');
     } catch (e) {
       throw Exception('Failed to unsave report: $e');
@@ -288,20 +444,10 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     required String content,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('auth_token');
-      
-      final options = token != null 
-          ? Options(headers: {
-              'Authorization': 'Bearer $token',
-              'X-User-Id': userId.toString(),
-            })
-          : Options(headers: {'X-User-Id': userId.toString()});
-
       final response = await dio.post(
         '/api/reports/$reportId/comments',
         data: {'content': content},
-        options: options,
+        options: _authOptions(userId: userId),
       );
 
       if (response.statusCode != 200) {
@@ -318,7 +464,7 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     try {
       final response = await dio.get(
         '/api/reports/$reportId',
-        options: await _authOptions(userId: userId),
+        options: _authOptions(userId: userId),
       );
 
       final data = response.data;
@@ -335,11 +481,11 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
   }
 
   @override
-  Future<List<CommentModel>> getComments(int reportId) async {
+  Future<List<CommentModel>> getComments(int reportId, {int? userId}) async {
     try {
       final response = await dio.get(
         '/api/reports/$reportId/comments',
-        options: await _authOptions(),
+        options: _authOptions(userId: userId),
       );
 
       final data = response.data;
@@ -356,13 +502,35 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     }
   }
 
-  /// Attaches the stored bearer token (and optionally the user id header).
-  Future<Options> _authOptions({int? userId}) async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('auth_token');
+  @override
+  Future<String?> voteComment({
+    required int commentId,
+    required int userId,
+    required String type,
+  }) async {
+    try {
+      final response = await dio.post(
+        '/api/comments/$commentId/vote',
+        data: {'type': type},
+        options: _authOptions(userId: userId),
+      );
+
+      final data = response.data;
+      if (data is Map && data['data'] is Map) {
+        return (data['data'] as Map)['userVoteType'] as String?;
+      }
+      return null;
+    } on DioException catch (e) {
+      final message = _extractErrorMessage(e.response?.data);
+      throw Exception(message ?? e.message ?? 'Failed to vote on the comment');
+    }
+  }
+
+  Options _authOptions({int? userId}) {
+    final token = LocalStore.instance.getString(StorageKeys.authToken);
 
     final headers = <String, dynamic>{
-      if (token != null) 'Authorization': 'Bearer $token',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
       if (userId != null) 'X-User-Id': userId.toString(),
     };
 
@@ -374,7 +542,7 @@ class ReportRemoteDataSourceImpl implements ReportRemoteDataSource {
     try {
       final response = await dio.get(
         '/api/reports/$reportId/votes',
-        options: await _authOptions(),
+        options: _authOptions(),
       );
 
       final data = response.data;

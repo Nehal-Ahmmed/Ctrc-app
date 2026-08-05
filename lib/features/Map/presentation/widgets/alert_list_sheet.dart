@@ -3,12 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../Report/domain/models/report_model.dart';
 import '../../domain/models/route_models.dart';
 
-/// One row in an alert list.
 class AlertEntry {
   final ReportModel report;
   final CongestionLevel level;
 
-  /// e.g. "1.2 km away" or "300 m off route".
   final String distanceLabel;
 
   const AlertEntry({
@@ -18,8 +16,6 @@ class AlertEntry {
   });
 }
 
-/// Shared bottom sheet used for both the "alerts in this area" and "alerts
-/// along the route" lists. Tapping a row opens the full report.
 class AlertListSheet extends StatelessWidget {
   final String title;
   final String subtitle;

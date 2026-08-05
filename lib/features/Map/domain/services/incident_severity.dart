@@ -1,11 +1,7 @@
+import '../../../../core/utils/app_time.dart';
 import '../../../Report/domain/models/report_model.dart';
 import '../models/route_models.dart';
 
-/// Maps an incident report onto a road-condition level.
-///
-/// Categories are matched loosely because reports come from several places in
-/// the app (feed picker, create sheet, seeded data) with slightly different
-/// wording.
 class IncidentSeverity {
   IncidentSeverity._();
 
@@ -41,7 +37,6 @@ class IncidentSeverity {
     'crime',
   ];
 
-  /// Net community confidence in the report.
   static int score(ReportModel report) =>
       report.upvoteCount - report.downvoteCount;
 
@@ -57,8 +52,7 @@ class IncidentSeverity {
     }
 
     final net = score(report);
-    // Strongly disputed blockages soften to a caution; heavily confirmed
-    // slowdowns harden into a blockage.
+    
     if (level == CongestionLevel.blocked && net < 0) return CongestionLevel.slow;
     if (level == CongestionLevel.slow && net >= 20) {
       return CongestionLevel.blocked;
@@ -66,12 +60,11 @@ class IncidentSeverity {
     return level;
   }
 
-  /// Reports whose `expiresAt` is in the past no longer affect the road.
   static bool isActive(ReportModel report) {
     final raw = report.expiresAt;
     if (raw == null || raw.isEmpty) return true;
-    final parsed = DateTime.tryParse(raw);
+    final parsed = AppTime.parseTimestamp(raw);
     if (parsed == null) return true;
-    return parsed.isAfter(DateTime.now());
+    return parsed.isAfter(DateTime.now().toUtc());
   }
 }
